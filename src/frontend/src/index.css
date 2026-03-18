@@ -1,0 +1,76 @@
+@import url("https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&display=swap");
+
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+@layer base {
+  :root {
+    --radius: 0.625rem;
+
+    /* Page background: #F4F6F9 */
+    --background: 0.965 0.008 245;
+    /* Cards/surfaces: #FFFFFF */
+    --card: 1 0 0;
+    --card-foreground: 0.18 0.02 265;
+    /* Popover */
+    --popover: 1 0 0;
+    --popover-foreground: 0.18 0.02 265;
+    /* Primary: #2F80ED */
+    --primary: 0.57 0.19 252;
+    --primary-foreground: 1 0 0;
+    /* Secondary */
+    --secondary: 0.94 0.01 245;
+    --secondary-foreground: 0.3 0.02 265;
+    /* Muted */
+    --muted: 0.94 0.008 245;
+    --muted-foreground: 0.52 0.01 255;
+    /* Accent */
+    --accent: 0.92 0.01 245;
+    --accent-foreground: 0.3 0.02 265;
+    /* Destructive: #EB5757 */
+    --destructive: 0.59 0.2 25;
+    --destructive-foreground: 1 0 0;
+    /* Border: #E6EAF0 */
+    --border: 0.925 0.01 245;
+    --input: 0.925 0.01 245;
+    --ring: 0.57 0.19 252;
+    /* Foreground: #111827 */
+    --foreground: 0.18 0.02 265;
+    /* Charts */
+    --chart-1: 0.57 0.19 252;
+    --chart-2: 0.6 0.15 150;
+    --chart-3: 0.82 0.13 85;
+    --chart-4: 0.59 0.2 25;
+    --chart-5: 0.65 0.14 200;
+
+    /* Sidebar: deep navy #0B1F34 → #132B44 */
+    --sidebar: 0.21 0.05 240;
+    --sidebar-foreground: 0.72 0.04 240;
+    --sidebar-primary: 0.57 0.19 252;
+    --sidebar-primary-foreground: 1 0 0;
+    --sidebar-accent: 0.27 0.05 240;
+    --sidebar-accent-foreground: 0.9 0.02 240;
+    --sidebar-border: 0.3 0.04 240;
+    --sidebar-ring: 0.57 0.19 252;
+
+    /* Custom status colors */
+    --status-paid: 0.6 0.15 150;
+    --status-pending: 0.75 0.14 80;
+    --status-overdue: 0.59 0.2 25;
+
+    /* KPI tile badge bg */
+    --kpi-blue: 0.94 0.04 252;
+    --kpi-red: 0.96 0.03 25;
+    --kpi-cyan: 0.95 0.04 200;
+  }
+
+  * {
+    @apply border-border;
+  }
+
+  body {
+    @apply bg-background text-foreground;
+    font-family: "Inter", sans-serif;
+  }
+}
