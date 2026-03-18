@@ -17,14 +17,14 @@ import {
   TableRow,
 } from "@/components/ui/table";
 import { Principal } from "@icp-sdk/core/principal";
-import { Link, Loader2, Pencil, Plus, RefreshCw, Trash2 } from "lucide-react";
+import { Link, Loader2, Pencil, Plus, Trash2 } from "lucide-react";
 import { useCallback, useEffect, useState } from "react";
 import { toast } from "sonner";
 import type { FlatOwnerPublic as FlatOwner } from "../../backend.d";
 import { useActor } from "../../hooks/useActor";
-import { formatINR, getCurrentMonthYear } from "../../utils/format";
+import { formatINR } from "../../utils/format";
 
-type ModalType = "add" | "edit" | "delete" | "maintenance" | "link" | null;
+type ModalType = "add" | "edit" | "delete" | "link" | null;
 
 const EMPTY_FORM = {
   blockNo: "",
@@ -91,7 +91,6 @@ function SocietyOverviewMini() {
   );
 }
 
-// Defined OUTSIDE ResidentsPage to prevent re-mounting on every keystroke
 interface OwnerFormFieldsProps {
   form: FormState;
   onChange: (key: keyof FormState, value: string) => void;
@@ -156,7 +155,6 @@ export default function ResidentsPage() {
   const [modal, setModal] = useState<ModalType>(null);
   const [selectedOwner, setSelectedOwner] = useState<FlatOwner | null>(null);
   const [form, setForm] = useState(EMPTY_FORM);
-  const [monthYear, setMonthYear] = useState(getCurrentMonthYear());
   const [linkPrincipal, setLinkPrincipal] = useState("");
   const [saving, setSaving] = useState(false);
 
@@ -272,20 +270,6 @@ export default function ResidentsPage() {
     }
   };
 
-  const handleMaintenanceDebit = async () => {
-    if (!actor) return;
-    setSaving(true);
-    try {
-      await actor.updateMaintenanceDebit(monthYear);
-      toast.success(`Maintenance debit applied for ${monthYear}`);
-      setModal(null);
-    } catch (e: any) {
-      toast.error(e?.message || "Failed to run maintenance debit");
-    } finally {
-      setSaving(false);
-    }
-  };
-
   const handleLink = async () => {
     if (!actor || !selectedOwner) return;
     setSaving(true);
@@ -304,29 +288,16 @@ export default function ResidentsPage() {
   return (
     <div className="space-y-5">
       {/* Header row */}
-      <div className="flex items-center justify-between">
-        <div />
-        <div className="flex items-center gap-3">
-          <Button
-            type="button"
-            data-ocid="residents.maintenance.button"
-            onClick={() => setModal("maintenance")}
-            variant="outline"
-            className="border-primary text-primary hover:bg-primary hover:text-white h-9 text-sm font-medium"
-          >
-            <RefreshCw className="w-4 h-4 mr-2" />
-            Update Maintenance Debit
-          </Button>
-          <Button
-            type="button"
-            data-ocid="residents.add.button"
-            onClick={openAdd}
-            className="bg-primary hover:bg-primary/90 text-white h-9 text-sm font-medium"
-          >
-            <Plus className="w-4 h-4 mr-2" />
-            Add Resident
-          </Button>
-        </div>
+      <div className="flex items-center justify-end">
+        <Button
+          type="button"
+          data-ocid="residents.add.button"
+          onClick={openAdd}
+          className="bg-primary hover:bg-primary/90 text-white h-9 text-sm font-medium"
+        >
+          <Plus className="w-4 h-4 mr-2" />
+          Add Resident
+        </Button>
       </div>
 
       {/* Society Overview mini */}
@@ -544,52 +515,6 @@ export default function ResidentsPage() {
                 <Loader2 className="w-4 h-4 animate-spin mr-2" />
               ) : null}
               Delete
-            </Button>
-          </DialogFooter>
-        </DialogContent>
-      </Dialog>
-
-      {/* Maintenance Debit Modal */}
-      <Dialog
-        open={modal === "maintenance"}
-        onOpenChange={(o) => !o && setModal(null)}
-      >
-        <DialogContent data-ocid="maintenance.dialog" className="max-w-sm">
-          <DialogHeader>
-            <DialogTitle>Update Maintenance Debit</DialogTitle>
-          </DialogHeader>
-          <div>
-            <Label className="text-xs">Month-Year (MM-YYYY)</Label>
-            <Input
-              data-ocid="maintenance.month.input"
-              value={monthYear}
-              onChange={(e) => setMonthYear(e.target.value)}
-              placeholder="03-2026"
-              className="mt-1 h-9 text-sm"
-            />
-            <p className="text-xs text-muted-foreground mt-2">
-              This will generate a maintenance debit entry for all flat owners
-              for the specified month.
-            </p>
-          </div>
-          <DialogFooter>
-            <Button
-              variant="outline"
-              onClick={() => setModal(null)}
-              data-ocid="maintenance.cancel_button"
-            >
-              Cancel
-            </Button>
-            <Button
-              onClick={handleMaintenanceDebit}
-              disabled={saving}
-              className="bg-primary text-white"
-              data-ocid="maintenance.confirm_button"
-            >
-              {saving ? (
-                <Loader2 className="w-4 h-4 animate-spin mr-2" />
-              ) : null}
-              Run Debit
             </Button>
           </DialogFooter>
         </DialogContent>

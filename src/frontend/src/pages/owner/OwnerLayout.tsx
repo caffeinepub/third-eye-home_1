@@ -254,7 +254,13 @@ export default function OwnerLayout({ initialProfile, onLogout }: Props) {
             <OwnerDashboardPage profile={initialProfile} ownerId={ownerId} />
           )}
           {currentPage === "statement" && (
-            <OwnerStatementPage ownerId={ownerId} />
+            <OwnerStatementPage
+              ownerId={ownerId}
+              ownerName={initialProfile?.ownerName}
+              flatNo={initialProfile?.flatNo}
+              blockNo={initialProfile?.blockNo}
+              phone={initialProfile?.phone}
+            />
           )}
           {currentPage === "profile" && (
             <OwnerProfilePage profile={initialProfile} />

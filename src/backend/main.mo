@@ -208,16 +208,17 @@ actor {
   };
 
   public query func getSocietyOverview() : async SocietyOverview {
-    var totalPendingDues = 0;
-    var totalCollected = 0;
+    var totalDebits : Nat = 0;
+    var totalCollected : Nat = 0;
     transactions.values().forEach(
       func(transaction) {
         switch (transaction.transactionType) {
-          case (#Debit) { totalPendingDues += transaction.amount };
+          case (#Debit) { totalDebits += transaction.amount };
           case (#Credit) { totalCollected += transaction.amount };
         };
       }
     );
+    let totalPendingDues : Nat = if (totalDebits > totalCollected) { totalDebits - totalCollected } else { 0 };
     {
       totalFlats = flatOwners.size();
       totalPendingDues;
@@ -244,18 +245,19 @@ actor {
   };
 
   public query func getOwnerBalance(ownerId : Nat) : async Nat {
-    var balance = 0;
+    var debits : Nat = 0;
+    var credits : Nat = 0;
     transactions.values().forEach(
       func(transaction) {
         if (transaction.flatOwnerId == ownerId) {
           switch (transaction.transactionType) {
-            case (#Debit) { balance += transaction.amount };
-            case (#Credit) { balance -= transaction.amount };
+            case (#Debit) { debits += transaction.amount };
+            case (#Credit) { credits += transaction.amount };
           };
         };
       }
     );
-    balance;
+    if (debits > credits) { debits - credits } else { 0 };
   };
 
   // Helper functions

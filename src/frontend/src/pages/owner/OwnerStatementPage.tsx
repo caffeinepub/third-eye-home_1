@@ -1,23 +1,27 @@
-import {
-  Table,
-  TableBody,
-  TableCell,
-  TableHead,
-  TableHeader,
-  TableRow,
-} from "@/components/ui/table";
-import { Loader2, TrendingDown, TrendingUp } from "lucide-react";
+import { Button } from "@/components/ui/button";
+import { Download, Loader2, Printer } from "lucide-react";
 import { useEffect, useState } from "react";
 import type { Transaction } from "../../backend.d";
 import { TransactionType } from "../../backend.d";
 import { useActor } from "../../hooks/useActor";
 import { formatDate, formatINR } from "../../utils/format";
+import { numberToWords } from "../../utils/numberToWords";
 
 interface Props {
   ownerId: bigint;
+  ownerName?: string;
+  flatNo?: string;
+  blockNo?: string;
+  phone?: string;
 }
 
-export default function OwnerStatementPage({ ownerId }: Props) {
+export default function OwnerStatementPage({
+  ownerId,
+  ownerName,
+  flatNo,
+  blockNo,
+  phone,
+}: Props) {
   const { actor, isFetching } = useActor();
   const [statement, setStatement] = useState<Transaction[]>([]);
   const [loading, setLoading] = useState(true);
@@ -27,60 +31,70 @@ export default function OwnerStatementPage({ ownerId }: Props) {
     setLoading(true);
     actor
       .getFlatStatement(ownerId)
-      .then((stmts) => setStatement(stmts))
+      .then(setStatement)
       .catch(() => null)
       .finally(() => setLoading(false));
   }, [actor, isFetching, ownerId]);
 
-  const totalDebits = statement
+  const rows = statement.map((t, i) => {
+    const runningBalance = statement.slice(0, i + 1).reduce((acc, tx) => {
+      return tx.transactionType === TransactionType.Debit
+        ? acc + Number(tx.amount)
+        : acc - Number(tx.amount);
+    }, 0);
+    return { ...t, runningBalance };
+  });
+
+  const totalDebit = statement
     .filter((t) => t.transactionType === TransactionType.Debit)
     .reduce((a, t) => a + Number(t.amount), 0);
-  const totalCredits = statement
+  const totalCredit = statement
     .filter((t) => t.transactionType === TransactionType.Credit)
     .reduce((a, t) => a + Number(t.amount), 0);
-  const pendingBalance = Math.max(0, totalDebits - totalCredits);
-  const isDue = pendingBalance > 0;
+  const pendingBalance =
+    rows.length > 0 ? rows[rows.length - 1].runningBalance : 0;
+
+  const handlePrint = () => window.print();
+
+  const handleDownloadPDF = () => {
+    const originalTitle = document.title;
+    document.title = `Statement_${blockNo}-${flatNo}_${new Date().toLocaleDateString("en-IN")}`;
+    window.print();
+    document.title = originalTitle;
+  };
 
   return (
-    <div className="space-y-5">
-      {/* Summary card */}
-      <div className="bg-card rounded-xl border border-border shadow-card p-4">
-        <div className="flex items-center gap-6">
-          <div>
-            <p className="text-xs text-muted-foreground">Total Transactions</p>
-            <p className="text-xl font-bold">{statement.length}</p>
-          </div>
-          <div className="h-10 w-px bg-border" />
-          <div>
-            <p className="text-xs text-muted-foreground">Total Debits</p>
-            <p className="text-xl font-bold text-destructive">
-              {formatINR(totalDebits)}
-            </p>
-          </div>
-          <div className="h-10 w-px bg-border" />
-          <div>
-            <p className="text-xs text-muted-foreground">Total Credits</p>
-            <p className="text-xl font-bold text-[oklch(0.55_0.15_150)]">
-              {formatINR(totalCredits)}
-            </p>
-          </div>
-          <div className="h-10 w-px bg-border" />
-          <div>
-            <p className="text-xs text-muted-foreground">Outstanding Balance</p>
-            <p
-              className={`text-xl font-bold ${isDue ? "text-destructive" : "text-[oklch(0.55_0.15_150)]"}`}
-            >
-              {formatINR(pendingBalance)}
-            </p>
-          </div>
-        </div>
-      </div>
+    <>
+      <style>{`
+        @media print {
+          body * { visibility: hidden !important; }
+          #tally-owner-statement, #tally-owner-statement * { visibility: visible !important; }
+          #tally-owner-statement { position: fixed; top: 0; left: 0; width: 100%; }
+          .no-print { display: none !important; }
+        }
+      `}</style>
 
-      {/* Statement table */}
-      <div className="bg-card rounded-xl border border-border shadow-card">
-        <div className="px-5 py-4 border-b border-border">
-          <h2 className="text-sm font-semibold">Transaction History</h2>
+      <div className="space-y-4">
+        {/* Action bar */}
+        <div className="flex justify-end gap-2 no-print">
+          <Button
+            variant="outline"
+            onClick={handlePrint}
+            className="h-9 text-sm gap-2"
+          >
+            <Printer className="w-4 h-4" />
+            Print
+          </Button>
+          <Button
+            variant="outline"
+            onClick={handleDownloadPDF}
+            className="h-9 text-sm gap-2"
+          >
+            <Download className="w-4 h-4" />
+            Download PDF
+          </Button>
         </div>
+
         {loading ? (
           <div
             data-ocid="owner.statement.loading_state"
@@ -88,80 +102,217 @@ export default function OwnerStatementPage({ ownerId }: Props) {
           >
             <Loader2 className="w-5 h-5 animate-spin text-primary mx-auto" />
           </div>
-        ) : statement.length === 0 ? (
-          <div
-            data-ocid="owner.statement.empty_state"
-            className="p-8 text-center text-sm text-muted-foreground"
-          >
-            No transactions found.
-          </div>
         ) : (
-          <div className="overflow-x-auto">
-            <Table>
-              <TableHeader>
-                <TableRow className="bg-[oklch(0.96_0.005_245)]">
-                  <TableHead className="text-xs font-semibold">#</TableHead>
-                  <TableHead className="text-xs font-semibold">Date</TableHead>
-                  <TableHead className="text-xs font-semibold">
-                    Description
-                  </TableHead>
-                  <TableHead className="text-xs font-semibold">Type</TableHead>
-                  <TableHead className="text-xs font-semibold">
-                    Amount
-                  </TableHead>
-                </TableRow>
-              </TableHeader>
-              <TableBody>
-                {statement.map((t, i) => (
-                  <TableRow
-                    key={t.id.toString()}
-                    data-ocid={`owner.statement.item.${i + 1}`}
-                    className={`text-sm ${
-                      t.transactionType === TransactionType.Debit
-                        ? "bg-[oklch(0.99_0.008_25)]"
-                        : "bg-[oklch(0.99_0.008_150)]"
-                    }`}
-                  >
-                    <TableCell className="text-muted-foreground">
-                      {i + 1}
-                    </TableCell>
-                    <TableCell className="text-muted-foreground">
-                      {formatDate(t.entryDate)}
-                    </TableCell>
-                    <TableCell>{t.description}</TableCell>
-                    <TableCell>
-                      <span
-                        className={`inline-flex items-center gap-1 text-xs font-medium ${
-                          t.transactionType === TransactionType.Debit
-                            ? "text-destructive"
-                            : "text-[oklch(0.55_0.15_150)]"
-                        }`}
+          <div
+            id="tally-owner-statement"
+            className="bg-white border border-gray-300 rounded-xl overflow-hidden"
+          >
+            {/* Header */}
+            <div className="border-b border-gray-300 p-5 text-center">
+              <h1 className="text-xl font-bold uppercase tracking-wide text-gray-800">
+                THIRD EYE HOME
+              </h1>
+              <p className="text-sm text-gray-500">
+                Society Maintenance Statement
+              </p>
+              <div className="mt-3 grid grid-cols-2 gap-x-8 text-sm text-left max-w-lg mx-auto">
+                <div>
+                  <span className="text-gray-500">Flat No:</span>{" "}
+                  <span className="font-semibold">
+                    {blockNo}-{flatNo}
+                  </span>
+                </div>
+                <div>
+                  <span className="text-gray-500">Owner:</span>{" "}
+                  <span className="font-semibold">{ownerName}</span>
+                </div>
+                <div className="mt-1">
+                  <span className="text-gray-500">Print Date:</span>{" "}
+                  <span className="font-semibold">
+                    {new Date().toLocaleDateString("en-IN", {
+                      day: "2-digit",
+                      month: "short",
+                      year: "numeric",
+                    })}
+                  </span>
+                </div>
+                <div className="mt-1">
+                  <span className="text-gray-500">Contact:</span>{" "}
+                  <span className="font-semibold">{phone || "—"}</span>
+                </div>
+              </div>
+            </div>
+
+            {statement.length === 0 ? (
+              <div
+                data-ocid="owner.statement.empty_state"
+                className="p-8 text-center text-sm text-gray-500"
+              >
+                No transactions found.
+              </div>
+            ) : (
+              <>
+                <div className="overflow-x-auto">
+                  <table className="w-full border-collapse text-sm">
+                    <thead>
+                      <tr className="bg-gray-800 text-white">
+                        <th className="border border-gray-600 px-3 py-2 text-left font-semibold w-8">
+                          #
+                        </th>
+                        <th className="border border-gray-600 px-3 py-2 text-left font-semibold">
+                          Date
+                        </th>
+                        <th className="border border-gray-600 px-3 py-2 text-left font-semibold">
+                          Particulars / Description
+                        </th>
+                        <th className="border border-gray-600 px-3 py-2 text-left font-semibold">
+                          Vch Type
+                        </th>
+                        <th className="border border-gray-600 px-3 py-2 text-right font-semibold">
+                          Debit (₹)
+                        </th>
+                        <th className="border border-gray-600 px-3 py-2 text-right font-semibold">
+                          Credit (₹)
+                        </th>
+                        <th className="border border-gray-600 px-3 py-2 text-right font-semibold">
+                          Balance Due (₹)
+                        </th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {rows.map((t, i) => {
+                        const isDebit =
+                          t.transactionType === TransactionType.Debit;
+                        return (
+                          <tr
+                            key={t.id.toString()}
+                            className={i % 2 === 0 ? "bg-white" : "bg-gray-50"}
+                            data-ocid={`owner.statement.item.${i + 1}`}
+                          >
+                            <td className="border border-gray-200 px-3 py-2 text-gray-500">
+                              {i + 1}
+                            </td>
+                            <td className="border border-gray-200 px-3 py-2 text-gray-600 whitespace-nowrap">
+                              {formatDate(t.entryDate)}
+                            </td>
+                            <td className="border border-gray-200 px-3 py-2">
+                              {t.description}
+                            </td>
+                            <td className="border border-gray-200 px-3 py-2">
+                              <span
+                                className={`text-xs font-semibold px-2 py-0.5 rounded ${
+                                  isDebit
+                                    ? "bg-red-100 text-red-700"
+                                    : "bg-green-100 text-green-700"
+                                }`}
+                              >
+                                {isDebit ? "Debit Note" : "Receipt"}
+                              </span>
+                            </td>
+                            <td className="border border-gray-200 px-3 py-2 text-right font-mono">
+                              {isDebit ? (
+                                <span className="text-red-600 font-medium">
+                                  {Number(t.amount).toLocaleString("en-IN")}
+                                </span>
+                              ) : (
+                                <span className="text-gray-300">—</span>
+                              )}
+                            </td>
+                            <td className="border border-gray-200 px-3 py-2 text-right font-mono">
+                              {!isDebit ? (
+                                <span className="text-green-600 font-medium">
+                                  {Number(t.amount).toLocaleString("en-IN")}
+                                </span>
+                              ) : (
+                                <span className="text-gray-300">—</span>
+                              )}
+                            </td>
+                            <td className="border border-gray-200 px-3 py-2 text-right font-mono">
+                              <span
+                                className={
+                                  t.runningBalance > 0
+                                    ? "text-red-600 font-semibold"
+                                    : "text-green-600 font-semibold"
+                                }
+                              >
+                                {t.runningBalance.toLocaleString("en-IN")}
+                                {t.runningBalance > 0 ? " Dr" : " Cr"}
+                              </span>
+                            </td>
+                          </tr>
+                        );
+                      })}
+                      {/* Totals row */}
+                      <tr className="bg-gray-100 font-bold">
+                        <td
+                          colSpan={4}
+                          className="border border-gray-300 px-3 py-2 text-right text-gray-700 uppercase text-xs tracking-wide"
+                        >
+                          Totals
+                        </td>
+                        <td className="border border-gray-300 px-3 py-2 text-right font-mono text-red-700">
+                          {totalDebit.toLocaleString("en-IN")}
+                        </td>
+                        <td className="border border-gray-300 px-3 py-2 text-right font-mono text-green-700">
+                          {totalCredit.toLocaleString("en-IN")}
+                        </td>
+                        <td className="border border-gray-300 px-3 py-2 text-right font-mono">
+                          <span
+                            className={
+                              pendingBalance > 0
+                                ? "text-red-700"
+                                : "text-green-700"
+                            }
+                          >
+                            {Math.abs(pendingBalance).toLocaleString("en-IN")}
+                            {pendingBalance > 0 ? " Dr" : " Cr"}
+                          </span>
+                        </td>
+                      </tr>
+                    </tbody>
+                  </table>
+                </div>
+
+                {/* Balance in words */}
+                <div className="border-t border-gray-300 bg-gray-50 px-5 py-4">
+                  <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-2">
+                    <div>
+                      <p className="text-xs text-gray-500 uppercase tracking-wide font-semibold">
+                        Closing Balance Due
+                      </p>
+                      <p
+                        className="text-2xl font-bold mt-0.5"
+                        style={{
+                          color: pendingBalance > 0 ? "#dc2626" : "#16a34a",
+                        }}
                       >
-                        {t.transactionType === TransactionType.Debit ? (
-                          <TrendingDown className="w-3 h-3" />
-                        ) : (
-                          <TrendingUp className="w-3 h-3" />
-                        )}
-                        {t.transactionType}
-                      </span>
-                    </TableCell>
-                    <TableCell
-                      className={`font-medium ${
-                        t.transactionType === TransactionType.Debit
-                          ? "text-destructive"
-                          : "text-[oklch(0.55_0.15_150)]"
-                      }`}
-                    >
-                      {t.transactionType === TransactionType.Debit ? "-" : "+"}
-                      {formatINR(t.amount)}
-                    </TableCell>
-                  </TableRow>
-                ))}
-              </TableBody>
-            </Table>
+                        {formatINR(Math.abs(pendingBalance))}
+                        <span className="text-base font-semibold ml-2">
+                          {pendingBalance > 0 ? "(Dr)" : "(Cr)"}
+                        </span>
+                      </p>
+                    </div>
+                    <div className="text-right">
+                      <p className="text-xs text-gray-500 uppercase tracking-wide font-semibold">
+                        Amount in Words
+                      </p>
+                      <p className="text-sm font-semibold text-gray-700 mt-0.5 max-w-xs sm:text-right">
+                        {numberToWords(Math.abs(pendingBalance))}
+                      </p>
+                    </div>
+                  </div>
+                </div>
+
+                {/* Footer */}
+                <div className="border-t border-gray-300 px-5 py-3 flex justify-between text-xs text-gray-400">
+                  <span>Generated by Third Eye Home</span>
+                  <span>{new Date().toLocaleString("en-IN")}</span>
+                </div>
+              </>
+            )}
           </div>
         )}
       </div>
-    </div>
+    </>
   );
 }

@@ -1,6 +1,12 @@
 import { Button } from "@/components/ui/button";
-import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from "@/components/ui/select";
 import {
   Table,
   TableBody,
@@ -19,6 +25,45 @@ import type {
 import { TransactionType } from "../../backend.d";
 import { useActor } from "../../hooks/useActor";
 import { formatDate, formatINR, getCurrentMonthYear } from "../../utils/format";
+
+const MONTH_NAMES = [
+  "January",
+  "February",
+  "March",
+  "April",
+  "May",
+  "June",
+  "July",
+  "August",
+  "September",
+  "October",
+  "November",
+  "December",
+];
+
+// Generate month options from April 2024 to April 2027
+function generateMonthOptions() {
+  const options: { label: string; value: string }[] = [];
+  const start = { year: 2024, month: 4 }; // April 2024
+  const end = { year: 2027, month: 4 }; // April 2027
+
+  let { year, month } = start;
+  while (year < end.year || (year === end.year && month <= end.month)) {
+    const mm = String(month).padStart(2, "0");
+    options.push({
+      label: `${MONTH_NAMES[month - 1]} ${year}`,
+      value: `${mm}-${year}`,
+    });
+    month++;
+    if (month > 12) {
+      month = 1;
+      year++;
+    }
+  }
+  return options;
+}
+
+const MONTH_OPTIONS = generateMonthOptions();
 
 export default function MaintenancePage() {
   const { actor, isFetching } = useActor();
@@ -64,17 +109,16 @@ export default function MaintenancePage() {
     loadRecentEntries();
   }, [loadRecentEntries]);
 
+  const selectedLabel =
+    MONTH_OPTIONS.find((o) => o.value === monthYear)?.label ?? monthYear;
+
   const handleRunDebit = async () => {
     if (!actor) return;
-    if (!monthYear.match(/^\d{2}-\d{4}$/)) {
-      toast.error("Invalid format. Use MM-YYYY (e.g. 03-2026)");
-      return;
-    }
     setRunning(true);
     try {
       await actor.updateMaintenanceDebit(monthYear);
       toast.success(
-        `Maintenance debit applied for ${monthYear} to all ${owners.length} flat(s)`,
+        `Maintenance debit applied for ${selectedLabel} to all ${owners.length} flat(s)`,
       );
       loadRecentEntries();
     } catch (e: any) {
@@ -103,16 +147,26 @@ export default function MaintenancePage() {
           </div>
         </div>
 
-        <div className="flex items-end gap-4">
-          <div className="flex-1 max-w-xs">
-            <Label className="text-xs mb-1 block">Month-Year (MM-YYYY)</Label>
-            <Input
-              data-ocid="maintenance.month.input"
-              value={monthYear}
-              onChange={(e) => setMonthYear(e.target.value)}
-              placeholder="03-2026"
-              className="h-10 font-mono"
-            />
+        <div className="flex items-end gap-4 flex-wrap">
+          <div className="flex-1 min-w-48 max-w-xs">
+            <Label className="text-xs mb-1 block">
+              Select Month &amp; Year
+            </Label>
+            <Select value={monthYear} onValueChange={setMonthYear}>
+              <SelectTrigger
+                data-ocid="maintenance.month.select"
+                className="h-10"
+              >
+                <SelectValue placeholder="Select month…" />
+              </SelectTrigger>
+              <SelectContent className="max-h-64 overflow-y-auto">
+                {MONTH_OPTIONS.map((opt) => (
+                  <SelectItem key={opt.value} value={opt.value}>
+                    {opt.label}
+                  </SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
           </div>
           <Button
             type="button"
@@ -126,16 +180,16 @@ export default function MaintenancePage() {
             ) : (
               <RefreshCw className="w-4 h-4 mr-2" />
             )}
-            Run Maintenance Debit for {monthYear}
+            Run Debit for {selectedLabel}
           </Button>
         </div>
 
         <div className="mt-4 flex items-start gap-2 p-3 bg-[oklch(0.94_0.04_252)] rounded-lg">
           <Info className="w-4 h-4 text-primary mt-0.5 flex-shrink-0" />
           <p className="text-xs text-foreground/70">
-            Clicking "Run Maintenance Debit" will create a debit transaction
-            equal to each owner's monthly maintenance amount in their statement.
-            This action affects all {owners.length} registered flat owners.
+            Clicking "Run Debit" will create a debit transaction equal to each
+            owner's monthly maintenance amount in their statement. This action
+            affects all {owners.length} registered flat owners.
           </p>
         </div>
       </div>
