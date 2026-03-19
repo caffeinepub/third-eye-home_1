@@ -98,9 +98,10 @@ export default function AccountsPage() {
     loadStatement();
   }, [loadStatement]);
 
-  // Compute running balance rows
-  const rows = statement.map((t, i) => {
-    const runningBalance = statement.slice(0, i + 1).reduce((acc, tx) => {
+  // Compute running balance rows — oldest first, newest last
+  const chronological = [...statement].reverse();
+  const rows = chronological.map((t, i) => {
+    const runningBalance = chronological.slice(0, i + 1).reduce((acc, tx) => {
       return tx.transactionType === TransactionType.Debit
         ? acc + Number(tx.amount)
         : acc - Number(tx.amount);
@@ -373,7 +374,8 @@ export default function AccountsPage() {
                         const isDebit =
                           t.transactionType === TransactionType.Debit;
                         const rowBg = i % 2 === 0 ? "bg-white" : "bg-gray-50";
-                        const isLastEntry = i === 0;
+                        // Newest entry is now the last row
+                        const isLastEntry = i === rows.length - 1;
                         return (
                           <tr key={t.id.toString()} className={rowBg}>
                             <td className="border border-gray-200 px-3 py-2 text-gray-500">

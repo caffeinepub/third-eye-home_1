@@ -74,6 +74,8 @@ actor {
   let transactions = Map.empty<Nat, Transaction>();
 
   // ── Stable storage: persists across upgrades ──
+  // IMPORTANT: These are always kept in sync and never cleared,
+  // so data is safe even if postupgrade is interrupted.
   stable var _flatOwnersStable : [(Nat, FlatOwner)] = [];
   stable var _transactionsStable : [(Nat, Transaction)] = [];
   stable var nextFlatOwnerId : Nat = 1;
@@ -87,12 +89,18 @@ actor {
     for ((k, v) in _transactionsStable.vals()) {
       transactions.add(k, v);
     };
-    _flatOwnersStable := [];
-    _transactionsStable := [];
+    // NOTE: We intentionally do NOT clear stable arrays here.
+    // They remain as a persistent backup and are re-synced on every write.
   };
 
   // Save data to stable storage before upgrade
   system func preupgrade() {
+    _flatOwnersStable := flatOwners.entries().toArray();
+    _transactionsStable := transactions.entries().toArray();
+  };
+
+  // Sync helper: keeps stable arrays always up to date
+  func syncStable() {
     _flatOwnersStable := flatOwners.entries().toArray();
     _transactionsStable := transactions.entries().toArray();
   };
@@ -140,6 +148,7 @@ actor {
     };
     flatOwners.add(id, owner);
     nextFlatOwnerId += 1;
+    syncStable();
     id;
   };
 
@@ -166,6 +175,7 @@ actor {
           createdAt = owner.createdAt;
         };
         flatOwners.add(id, updatedOwner);
+        syncStable();
       };
     };
   };
@@ -175,6 +185,7 @@ actor {
       Runtime.trap("Flat owner not found");
     };
     flatOwners.remove(id);
+    syncStable();
   };
 
   public query func getAllFlatOwners() : async [FlatOwnerPublic] {
@@ -189,6 +200,7 @@ actor {
         };
       }
     );
+    syncStable();
   };
 
   public shared func addManualTransaction(
@@ -199,6 +211,7 @@ actor {
     monthYear : Text
   ) : async () {
     addTransactionInternal(flatOwnerId, monthYear, transactionType, description, amount, "admin");
+    syncStable();
   };
 
   // Delete a transaction by ID
@@ -207,6 +220,7 @@ actor {
       Runtime.trap("Transaction not found");
     };
     transactions.remove(id);
+    syncStable();
   };
 
   // Update (edit) an existing transaction
@@ -231,6 +245,7 @@ actor {
           createdBy = tx.createdBy;
         };
         transactions.add(id, updated);
+        syncStable();
       };
     };
   };
@@ -324,5 +339,6 @@ actor {
     };
     transactions.add(id, transaction);
     nextTransactionId += 1;
+    // Note: caller is responsible for calling syncStable() after batch operations
   };
 };

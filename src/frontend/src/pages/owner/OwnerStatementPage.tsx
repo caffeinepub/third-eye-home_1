@@ -36,8 +36,10 @@ export default function OwnerStatementPage({
       .finally(() => setLoading(false));
   }, [actor, isFetching, ownerId]);
 
-  const rows = statement.map((t, i) => {
-    const runningBalance = statement.slice(0, i + 1).reduce((acc, tx) => {
+  // Oldest first, newest last — proper Tally ledger order
+  const chronological = [...statement].reverse();
+  const rows = chronological.map((t, i) => {
+    const runningBalance = chronological.slice(0, i + 1).reduce((acc, tx) => {
       return tx.transactionType === TransactionType.Debit
         ? acc + Number(tx.amount)
         : acc - Number(tx.amount);
