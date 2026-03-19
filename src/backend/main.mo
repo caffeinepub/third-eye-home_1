@@ -74,8 +74,6 @@ actor {
   let transactions = Map.empty<Nat, Transaction>();
 
   // ── Stable storage: persists across upgrades ──
-  // IMPORTANT: These are always kept in sync and never cleared,
-  // so data is safe even if postupgrade is interrupted.
   stable var _flatOwnersStable : [(Nat, FlatOwner)] = [];
   stable var _transactionsStable : [(Nat, Transaction)] = [];
   stable var nextFlatOwnerId : Nat = 1;
@@ -87,10 +85,14 @@ actor {
       flatOwners.add(k, v);
     };
     for ((k, v) in _transactionsStable.vals()) {
-      transactions.add(k, v);
+      // Only restore transactions for owners that still exist (skip orphans)
+      if (flatOwners.containsKey(v.flatOwnerId)) {
+        transactions.add(k, v);
+      };
     };
-    // NOTE: We intentionally do NOT clear stable arrays here.
-    // They remain as a persistent backup and are re-synced on every write.
+    // Sync stable after cleanup so orphans are permanently removed
+    _flatOwnersStable := flatOwners.entries().toArray();
+    _transactionsStable := transactions.entries().toArray();
   };
 
   // Save data to stable storage before upgrade
@@ -108,6 +110,9 @@ actor {
   module Transaction {
     public func compareByEntryDateDesc(t1 : Transaction, t2 : Transaction) : Order.Order {
       Int.compare(t2.entryDate, t1.entryDate);
+    };
+    public func compareByEntryDateAsc(t1 : Transaction, t2 : Transaction) : Order.Order {
+      Int.compare(t1.entryDate, t2.entryDate);
     };
   };
 
@@ -180,11 +185,19 @@ actor {
     };
   };
 
+  // Delete flat owner AND all their transactions (cascade delete)
   public shared func deleteFlatOwner(id : Nat) : async () {
     if (not flatOwners.containsKey(id)) {
       Runtime.trap("Flat owner not found");
     };
     flatOwners.remove(id);
+    // Remove all transactions belonging to this owner
+    let toDelete = transactions.values().toArray().filter(
+      func(t : Transaction) : Bool { t.flatOwnerId == id }
+    );
+    for (tx in toDelete.vals()) {
+      transactions.remove(tx.id);
+    };
     syncStable();
   };
 
@@ -256,14 +269,22 @@ actor {
     ).sort(Transaction.compareByEntryDateDesc);
   };
 
+  // Returns ALL transactions across all owners (for society statement)
+  public query func getAllTransactions() : async [Transaction] {
+    transactions.values().toArray().sort(Transaction.compareByEntryDateAsc);
+  };
+
   public query func getSocietyOverview() : async SocietyOverview {
     var totalDebits : Nat = 0;
     var totalCollected : Nat = 0;
+    // Only count transactions for owners that currently exist (skip orphans)
     transactions.values().forEach(
       func(transaction) {
-        switch (transaction.transactionType) {
-          case (#Debit) { totalDebits += transaction.amount };
-          case (#Credit) { totalCollected += transaction.amount };
+        if (flatOwners.containsKey(transaction.flatOwnerId)) {
+          switch (transaction.transactionType) {
+            case (#Debit) { totalDebits += transaction.amount };
+            case (#Credit) { totalCollected += transaction.amount };
+          };
         };
       }
     );

@@ -25,8 +25,16 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select";
-import { Download, Loader2, Pencil, Plus, Printer, Trash2 } from "lucide-react";
-import { useCallback, useEffect, useRef, useState } from "react";
+import {
+  Download,
+  FileText,
+  Loader2,
+  Pencil,
+  Plus,
+  Printer,
+  Trash2,
+} from "lucide-react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { toast } from "sonner";
 import type {
   FlatOwnerPublic as FlatOwner,
@@ -37,8 +45,42 @@ import { useActor } from "../../hooks/useActor";
 import { formatDate, formatINR, getCurrentMonthYear } from "../../utils/format";
 import { numberToWords } from "../../utils/numberToWords";
 
+type FilterPreset = "all" | "last-month" | "last-365" | "custom";
+
+function getEntryDateMs(entryDate: bigint | string): number {
+  if (typeof entryDate === "string") return new Date(entryDate).getTime();
+  return Number(entryDate) / 1_000_000;
+}
+
+function applyDateFilter(
+  txns: Transaction[],
+  preset: FilterPreset,
+  dateFrom: string,
+  dateTo: string,
+): Transaction[] {
+  const now = Date.now();
+  return txns.filter((t) => {
+    const ms = getEntryDateMs(t.entryDate);
+    if (preset === "last-month") return ms >= now - 30 * 24 * 60 * 60 * 1000;
+    if (preset === "last-365") return ms >= now - 365 * 24 * 60 * 60 * 1000;
+    if (preset === "custom") {
+      const from = dateFrom ? new Date(dateFrom).getTime() : 0;
+      const to = dateTo
+        ? new Date(dateTo).getTime() + 86400000
+        : Number.POSITIVE_INFINITY;
+      return ms >= from && ms <= to;
+    }
+    return true;
+  });
+}
+
 export default function AccountsPage() {
   const { actor, isFetching } = useActor();
+  const [activeTab, setActiveTab] = useState<"individual" | "society">(
+    "individual",
+  );
+
+  // Individual account state
   const [owners, setOwners] = useState<FlatOwner[]>([]);
   const [selectedId, setSelectedId] = useState<string>("");
   const [statement, setStatement] = useState<Transaction[]>([]);
@@ -73,6 +115,22 @@ export default function AccountsPage() {
   );
   const [deleting, setDeleting] = useState(false);
 
+  // Society statement state
+  const [societyOwners, setSocietyOwners] = useState<FlatOwner[]>([]);
+  const [allTransactions, setAllTransactions] = useState<Transaction[]>([]);
+  const [loadingSociety, setLoadingSociety] = useState(false);
+  const [societyLoaded, setSocietyLoaded] = useState(false);
+
+  // Date filter state — Individual tab filter
+  const [indivFilter, setIndivFilter] = useState<FilterPreset>("all");
+  const [indivDateFrom, setIndivDateFrom] = useState("");
+  const [indivDateTo, setIndivDateTo] = useState("");
+
+  // Society tab filter
+  const [socFilter, setSocFilter] = useState<FilterPreset>("all");
+  const [socDateFrom, setSocDateFrom] = useState("");
+  const [socDateTo, setSocDateTo] = useState("");
+
   useEffect(() => {
     if (!actor || isFetching) return;
     actor
@@ -98,8 +156,42 @@ export default function AccountsPage() {
     loadStatement();
   }, [loadStatement]);
 
+  const loadSocietyStatement = useCallback(async () => {
+    if (!actor || isFetching) return;
+    setLoadingSociety(true);
+    try {
+      const [fetchedOwners, fetchedTxns] = await Promise.all([
+        actor.getAllFlatOwners(),
+        actor.getAllTransactions(),
+      ]);
+      const sorted = [...fetchedOwners].sort((a, b) => {
+        const keyA = `${a.blockNo}-${a.flatNo}`;
+        const keyB = `${b.blockNo}-${b.flatNo}`;
+        return keyA.localeCompare(keyB);
+      });
+      setSocietyOwners(sorted);
+      setAllTransactions(fetchedTxns);
+      setSocietyLoaded(true);
+    } catch {
+      toast.error("Failed to load society statement");
+    } finally {
+      setLoadingSociety(false);
+    }
+  }, [actor, isFetching]);
+
+  useEffect(() => {
+    if (activeTab === "society" && !societyLoaded && actor && !isFetching) {
+      loadSocietyStatement();
+    }
+  }, [activeTab, societyLoaded, actor, isFetching, loadSocietyStatement]);
+
   // Compute running balance rows — oldest first, newest last
-  const chronological = [...statement].reverse();
+  const filteredIndivStatement = useMemo(
+    () => applyDateFilter(statement, indivFilter, indivDateFrom, indivDateTo),
+    [statement, indivFilter, indivDateFrom, indivDateTo],
+  );
+
+  const chronological = [...filteredIndivStatement].reverse();
   const rows = chronological.map((t, i) => {
     const runningBalance = chronological.slice(0, i + 1).reduce((acc, tx) => {
       return tx.transactionType === TransactionType.Debit
@@ -111,12 +203,56 @@ export default function AccountsPage() {
 
   const pendingBalance =
     rows.length > 0 ? rows[rows.length - 1].runningBalance : 0;
-  const totalDebit = statement
+  const totalDebit = filteredIndivStatement
     .filter((t) => t.transactionType === TransactionType.Debit)
     .reduce((a, t) => a + Number(t.amount), 0);
-  const totalCredit = statement
+  const totalCredit = filteredIndivStatement
     .filter((t) => t.transactionType === TransactionType.Credit)
     .reduce((a, t) => a + Number(t.amount), 0);
+
+  // Society computations with date filter
+  const societyData = useMemo(
+    () =>
+      societyOwners.map((owner) => {
+        const rawTxns = [...allTransactions]
+          .filter((t) => t.flatOwnerId.toString() === owner.id.toString())
+          .sort((a, b) => Number(a.entryDate) - Number(b.entryDate));
+
+        const ownerTxns = applyDateFilter(
+          rawTxns,
+          socFilter,
+          socDateFrom,
+          socDateTo,
+        );
+
+        let running = 0;
+        const ownerRows = ownerTxns.map((t) => {
+          if (t.transactionType === TransactionType.Debit)
+            running += Number(t.amount);
+          else running -= Number(t.amount);
+          return { ...t, runningBalance: running };
+        });
+
+        const ownerDebit = ownerTxns
+          .filter((t) => t.transactionType === TransactionType.Debit)
+          .reduce((s, t) => s + Number(t.amount), 0);
+        const ownerCredit = ownerTxns
+          .filter((t) => t.transactionType === TransactionType.Credit)
+          .reduce((s, t) => s + Number(t.amount), 0);
+        const ownerBalance =
+          ownerRows.length > 0
+            ? ownerRows[ownerRows.length - 1].runningBalance
+            : 0;
+
+        return { owner, ownerRows, ownerDebit, ownerCredit, ownerBalance };
+      }),
+    [societyOwners, allTransactions, socFilter, socDateFrom, socDateTo],
+  );
+
+  const grandDebit = societyData.reduce((s, d) => s + d.ownerDebit, 0);
+  const grandCredit = societyData.reduce((s, d) => s + d.ownerCredit, 0);
+  const grandBalance = societyData.reduce((s, d) => s + d.ownerBalance, 0);
+  const flatsWithDues = societyData.filter((d) => d.ownerBalance > 0).length;
 
   const handleAddEntry = async () => {
     if (!actor || !selectedId) return;
@@ -203,8 +339,24 @@ export default function AccountsPage() {
     document.title = originalTitle;
   };
 
+  const handleSocietyPrint = () => {
+    window.print();
+  };
+
+  const handleSocietyPDF = () => {
+    const originalTitle = document.title;
+    document.title = `Society_Statement_${new Date().toLocaleDateString("en-IN")}`;
+    window.print();
+    document.title = originalTitle;
+  };
+
   const selectedOwner = owners.find((o) => o.id.toString() === selectedId);
   const balanceClass = pendingBalance > 0 ? "text-red-600" : "text-green-600";
+  const printDate = new Date().toLocaleDateString("en-IN", {
+    day: "2-digit",
+    month: "short",
+    year: "numeric",
+  });
 
   return (
     <>
@@ -213,327 +365,955 @@ export default function AccountsPage() {
         @media print {
           body * { visibility: hidden !important; }
           #tally-statement, #tally-statement * { visibility: visible !important; }
+          #society-statement, #society-statement * { visibility: visible !important; }
           #tally-statement { position: fixed; top: 0; left: 0; width: 100%; }
+          #society-statement { position: fixed; top: 0; left: 0; width: 100%; }
           .no-print { display: none !important; }
         }
       `}</style>
 
       <div className="space-y-5">
-        {/* Flat selector */}
-        <div className="bg-card rounded-xl border border-border shadow-card p-5 no-print">
-          <div className="flex items-center gap-4 flex-wrap">
-            <div className="flex-1 min-w-48">
-              <Label className="text-xs mb-1 block">Select Flat Owner</Label>
-              <Select value={selectedId} onValueChange={setSelectedId}>
-                <SelectTrigger
-                  data-ocid="accounts.owner.select"
-                  className="h-9"
-                >
-                  <SelectValue placeholder="Choose a flat owner…" />
-                </SelectTrigger>
-                <SelectContent>
-                  {owners.map((o) => (
-                    <SelectItem key={o.id.toString()} value={o.id.toString()}>
-                      {o.blockNo}-{o.flatNo} — {o.ownerName}
-                    </SelectItem>
-                  ))}
-                </SelectContent>
-              </Select>
-            </div>
-            {selectedId && (
-              <>
-                <div className="text-center">
-                  <p className="text-xs text-muted-foreground">
-                    Pending Balance
-                  </p>
-                  <p className={`text-lg font-bold ${balanceClass}`}>
-                    {formatINR(pendingBalance)}
-                  </p>
-                </div>
-                <div className="flex gap-2 ml-auto">
-                  <Button
-                    variant="outline"
-                    onClick={handlePrint}
-                    className="h-9 text-sm gap-2"
-                  >
-                    <Printer className="w-4 h-4" />
-                    Print
-                  </Button>
-                  <Button
-                    variant="outline"
-                    onClick={handleDownloadPDF}
-                    className="h-9 text-sm gap-2"
-                  >
-                    <Download className="w-4 h-4" />
-                    PDF
-                  </Button>
-                  <Button
-                    data-ocid="accounts.add.button"
-                    onClick={() => setShowModal(true)}
-                    className="bg-primary text-white h-9 text-sm"
-                  >
-                    <Plus className="w-4 h-4 mr-1" />
-                    Add Entry
-                  </Button>
-                </div>
-              </>
-            )}
-          </div>
+        {/* Tab switcher */}
+        <div className="no-print flex gap-2">
+          <button
+            type="button"
+            data-ocid="accounts.individual.tab"
+            onClick={() => setActiveTab("individual")}
+            className={`px-5 py-2 rounded-full text-sm font-semibold transition-colors ${
+              activeTab === "individual"
+                ? "bg-primary text-white shadow"
+                : "border border-border bg-card text-foreground hover:bg-muted"
+            }`}
+          >
+            Individual Account
+          </button>
+          <button
+            type="button"
+            data-ocid="accounts.society.tab"
+            onClick={() => setActiveTab("society")}
+            className={`px-5 py-2 rounded-full text-sm font-semibold transition-colors ${
+              activeTab === "society"
+                ? "bg-primary text-white shadow"
+                : "border border-border bg-card text-foreground hover:bg-muted"
+            }`}
+          >
+            Society Statement
+          </button>
         </div>
 
-        {/* Tally-style Statement */}
-        {selectedId && (
-          <div
-            id="tally-statement"
-            ref={printRef}
-            className="bg-white border border-gray-300 rounded-xl overflow-hidden"
-          >
-            {/* Statement Header */}
-            <div className="border-b border-gray-300 p-5 text-center">
-              <h1 className="text-xl font-bold uppercase tracking-wide text-gray-800">
-                THIRD EYE HOME
-              </h1>
-              <p className="text-sm text-gray-500">
-                Society Maintenance Statement
-              </p>
-              <div className="mt-3 grid grid-cols-2 gap-x-8 text-sm text-left max-w-lg mx-auto">
-                <div>
-                  <span className="text-gray-500">Flat No:</span>{" "}
-                  <span className="font-semibold">
-                    {selectedOwner?.blockNo}-{selectedOwner?.flatNo}
-                  </span>
+        {/* ======================== INDIVIDUAL ACCOUNT TAB ======================== */}
+        {activeTab === "individual" && (
+          <>
+            {/* Flat selector */}
+            <div className="bg-card rounded-xl border border-border shadow-card p-5 no-print">
+              <div className="flex items-center gap-4 flex-wrap">
+                <div className="flex-1 min-w-48">
+                  <Label className="text-xs mb-1 block">
+                    Select Flat Owner
+                  </Label>
+                  <Select value={selectedId} onValueChange={setSelectedId}>
+                    <SelectTrigger
+                      data-ocid="accounts.owner.select"
+                      className="h-9"
+                    >
+                      <SelectValue placeholder="Choose a flat owner…" />
+                    </SelectTrigger>
+                    <SelectContent>
+                      {owners.map((o) => (
+                        <SelectItem
+                          key={o.id.toString()}
+                          value={o.id.toString()}
+                        >
+                          {o.blockNo}-{o.flatNo} — {o.ownerName}
+                        </SelectItem>
+                      ))}
+                    </SelectContent>
+                  </Select>
                 </div>
-                <div>
-                  <span className="text-gray-500">Owner:</span>{" "}
-                  <span className="font-semibold">
-                    {selectedOwner?.ownerName}
-                  </span>
-                </div>
-                <div className="mt-1">
-                  <span className="text-gray-500">Print Date:</span>{" "}
-                  <span className="font-semibold">
-                    {new Date().toLocaleDateString("en-IN", {
-                      day: "2-digit",
-                      month: "short",
-                      year: "numeric",
-                    })}
-                  </span>
-                </div>
-                <div className="mt-1">
-                  <span className="text-gray-500">Contact:</span>{" "}
-                  <span className="font-semibold">
-                    {selectedOwner?.phone || "—"}
-                  </span>
-                </div>
+                {selectedId && (
+                  <>
+                    <div className="text-center">
+                      <p className="text-xs text-muted-foreground">
+                        Pending Balance
+                      </p>
+                      <p className={`text-lg font-bold ${balanceClass}`}>
+                        {formatINR(pendingBalance)}
+                      </p>
+                    </div>
+                    <div className="flex gap-2 ml-auto">
+                      <Button
+                        variant="outline"
+                        onClick={handlePrint}
+                        className="h-9 text-sm gap-2"
+                      >
+                        <Printer className="w-4 h-4" />
+                        Print
+                      </Button>
+                      <Button
+                        variant="outline"
+                        onClick={handleDownloadPDF}
+                        className="h-9 text-sm gap-2"
+                      >
+                        <Download className="w-4 h-4" />
+                        PDF
+                      </Button>
+                      <Button
+                        data-ocid="accounts.add.button"
+                        onClick={() => setShowModal(true)}
+                        className="bg-primary text-white h-9 text-sm"
+                      >
+                        <Plus className="w-4 h-4 mr-1" />
+                        Add Entry
+                      </Button>
+                    </div>
+                  </>
+                )}
               </div>
             </div>
 
-            {loadingStmt ? (
-              <div className="p-8 text-center">
-                <Loader2 className="w-5 h-5 animate-spin text-primary mx-auto" />
-              </div>
-            ) : rows.length === 0 ? (
-              <div className="p-8 text-center text-sm text-gray-500">
-                No transactions found for this flat.
-              </div>
-            ) : (
-              <>
-                {/* Tally-style Table */}
-                <div className="overflow-x-auto">
-                  <table className="w-full border-collapse text-sm">
-                    <thead>
-                      <tr className="bg-gray-800 text-white">
-                        <th className="border border-gray-600 px-3 py-2 text-left font-semibold w-8">
-                          #
-                        </th>
-                        <th className="border border-gray-600 px-3 py-2 text-left font-semibold">
-                          Date
-                        </th>
-                        <th className="border border-gray-600 px-3 py-2 text-left font-semibold">
-                          Particulars / Description
-                        </th>
-                        <th className="border border-gray-600 px-3 py-2 text-left font-semibold">
-                          Vch Type
-                        </th>
-                        <th className="border border-gray-600 px-3 py-2 text-right font-semibold">
-                          Debit (₹)
-                        </th>
-                        <th className="border border-gray-600 px-3 py-2 text-right font-semibold">
-                          Credit (₹)
-                        </th>
-                        <th className="border border-gray-600 px-3 py-2 text-right font-semibold">
-                          Balance Due (₹)
-                        </th>
-                        <th className="border border-gray-600 px-3 py-2 text-center font-semibold no-print">
-                          Actions
-                        </th>
-                      </tr>
-                    </thead>
-                    <tbody>
-                      {rows.map((t, i) => {
-                        const isDebit =
-                          t.transactionType === TransactionType.Debit;
-                        const rowBg = i % 2 === 0 ? "bg-white" : "bg-gray-50";
-                        // Newest entry is now the last row
-                        const isLastEntry = i === rows.length - 1;
-                        return (
-                          <tr key={t.id.toString()} className={rowBg}>
-                            <td className="border border-gray-200 px-3 py-2 text-gray-500">
-                              {i + 1}
-                            </td>
-                            <td className="border border-gray-200 px-3 py-2 text-gray-600 whitespace-nowrap">
-                              {formatDate(t.entryDate)}
-                            </td>
-                            <td className="border border-gray-200 px-3 py-2">
-                              {t.description}
-                            </td>
-                            <td className="border border-gray-200 px-3 py-2">
-                              <span
-                                className={`text-xs font-semibold px-2 py-0.5 rounded ${
-                                  isDebit
-                                    ? "bg-red-100 text-red-700"
-                                    : "bg-green-100 text-green-700"
-                                }`}
-                              >
-                                {isDebit ? "Debit Note" : "Receipt"}
-                              </span>
-                            </td>
-                            <td className="border border-gray-200 px-3 py-2 text-right font-mono">
-                              {isDebit ? (
-                                <span className="text-red-600 font-medium">
-                                  {Number(t.amount).toLocaleString("en-IN")}
-                                </span>
-                              ) : (
-                                <span className="text-gray-300">—</span>
-                              )}
-                            </td>
-                            <td className="border border-gray-200 px-3 py-2 text-right font-mono">
-                              {!isDebit ? (
-                                <span className="text-green-600 font-medium">
-                                  {Number(t.amount).toLocaleString("en-IN")}
-                                </span>
-                              ) : (
-                                <span className="text-gray-300">—</span>
-                              )}
-                            </td>
-                            <td className="border border-gray-200 px-3 py-2 text-right font-mono">
-                              <span
-                                className={
-                                  t.runningBalance > 0
-                                    ? "text-red-600 font-semibold"
-                                    : "text-green-600 font-semibold"
-                                }
-                              >
-                                {t.runningBalance.toLocaleString("en-IN")}
-                                {t.runningBalance > 0 ? " Dr" : " Cr"}
-                              </span>
-                            </td>
-                            <td className="border border-gray-200 px-3 py-2 text-center no-print">
-                              {isLastEntry && (
-                                <div className="flex items-center justify-center gap-1">
-                                  <button
-                                    type="button"
-                                    data-ocid="accounts.edit_button.1"
-                                    onClick={() => openEditModal(t)}
-                                    className="p-1.5 rounded hover:bg-blue-50 text-blue-600 hover:text-blue-700 transition-colors"
-                                    title="Edit this entry"
-                                  >
-                                    <Pencil className="w-3.5 h-3.5" />
-                                  </button>
-                                  <button
-                                    type="button"
-                                    data-ocid="accounts.delete_button.1"
-                                    onClick={() =>
-                                      openDeleteConfirm(BigInt(t.id))
-                                    }
-                                    className="p-1.5 rounded hover:bg-red-50 text-red-500 hover:text-red-700 transition-colors"
-                                    title="Delete this entry"
-                                  >
-                                    <Trash2 className="w-3.5 h-3.5" />
-                                  </button>
-                                </div>
-                              )}
-                            </td>
-                          </tr>
-                        );
-                      })}
-
-                      {/* Totals row */}
-                      <tr className="bg-gray-100 font-bold">
-                        <td
-                          colSpan={4}
-                          className="border border-gray-300 px-3 py-2 text-right text-gray-700 uppercase text-xs tracking-wide"
-                        >
-                          Totals
-                        </td>
-                        <td className="border border-gray-300 px-3 py-2 text-right font-mono text-red-700">
-                          {totalDebit.toLocaleString("en-IN")}
-                        </td>
-                        <td className="border border-gray-300 px-3 py-2 text-right font-mono text-green-700">
-                          {totalCredit.toLocaleString("en-IN")}
-                        </td>
-                        <td className="border border-gray-300 px-3 py-2 text-right font-mono">
-                          <span
-                            className={
-                              pendingBalance > 0
-                                ? "text-red-700"
-                                : "text-green-700"
-                            }
-                          >
-                            {Math.abs(pendingBalance).toLocaleString("en-IN")}
-                            {pendingBalance > 0 ? " Dr" : " Cr"}
-                          </span>
-                        </td>
-                        <td className="border border-gray-300 px-3 py-2 no-print" />
-                      </tr>
-                    </tbody>
-                  </table>
+            {/* Date Filter Bar — Individual */}
+            {selectedId && (
+              <div className="bg-card rounded-xl border border-border p-4 no-print space-y-3">
+                <div className="flex flex-wrap gap-2 items-center">
+                  <span className="text-xs text-muted-foreground font-semibold mr-1">
+                    Duration:
+                  </span>
+                  {(
+                    [
+                      "all",
+                      "last-month",
+                      "last-365",
+                      "custom",
+                    ] as FilterPreset[]
+                  ).map((p) => (
+                    <button
+                      key={p}
+                      type="button"
+                      onClick={() => setIndivFilter(p)}
+                      className={`px-3 py-1.5 rounded-full text-xs font-semibold transition-colors ${
+                        indivFilter === p
+                          ? "bg-primary text-white shadow"
+                          : "border border-border bg-muted text-foreground hover:bg-muted/70"
+                      }`}
+                    >
+                      {p === "all"
+                        ? "All Time"
+                        : p === "last-month"
+                          ? "Last Month"
+                          : p === "last-365"
+                            ? "Last 365 Days"
+                            : "Custom Range"}
+                    </button>
+                  ))}
                 </div>
-
-                {/* Balance in words */}
-                <div className="border-t border-gray-300 bg-gray-50 px-5 py-4">
-                  <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-2">
-                    <div>
-                      <p className="text-xs text-gray-500 uppercase tracking-wide font-semibold">
-                        Closing Balance Due
-                      </p>
-                      <p
-                        className="text-2xl font-bold mt-0.5 {balanceClass}"
-                        style={{
-                          color: pendingBalance > 0 ? "#dc2626" : "#16a34a",
-                        }}
+                {indivFilter === "custom" && (
+                  <div className="flex flex-wrap gap-3 items-center">
+                    <div className="flex items-center gap-2">
+                      <label
+                        htmlFor="indiv-from"
+                        className="text-xs text-muted-foreground"
                       >
-                        {formatINR(Math.abs(pendingBalance))}
-                        <span className="text-base font-semibold ml-2">
-                          {pendingBalance > 0 ? "(Dr)" : "(Cr)"}
-                        </span>
-                      </p>
+                        From:
+                      </label>
+                      <input
+                        id="indiv-from"
+                        type="date"
+                        value={indivDateFrom}
+                        onChange={(e) => setIndivDateFrom(e.target.value)}
+                        className="h-8 rounded-md border border-border bg-background px-2 text-sm focus:outline-none focus:ring-1 focus:ring-primary"
+                      />
                     </div>
-                    <div className="text-right">
-                      <p className="text-xs text-gray-500 uppercase tracking-wide font-semibold">
-                        Amount in Words
-                      </p>
-                      <p className="text-sm font-semibold text-gray-700 mt-0.5 max-w-xs sm:text-right">
-                        {numberToWords(Math.abs(pendingBalance))}
-                      </p>
+                    <div className="flex items-center gap-2">
+                      <label
+                        htmlFor="indiv-to"
+                        className="text-xs text-muted-foreground"
+                      >
+                        To:
+                      </label>
+                      <input
+                        id="indiv-to"
+                        type="date"
+                        value={indivDateTo}
+                        onChange={(e) => setIndivDateTo(e.target.value)}
+                        className="h-8 rounded-md border border-border bg-background px-2 text-sm focus:outline-none focus:ring-1 focus:ring-primary"
+                      />
+                    </div>
+                  </div>
+                )}
+              </div>
+            )}
+
+            {/* Tally-style Statement */}
+            {selectedId && (
+              <div
+                id="tally-statement"
+                ref={printRef}
+                className="bg-white border border-gray-300 rounded-xl overflow-hidden"
+              >
+                {/* Statement Header */}
+                <div className="border-b border-gray-300 p-5 text-center">
+                  <h1 className="text-xl font-bold uppercase tracking-wide text-gray-800">
+                    THIRD EYE HOME
+                  </h1>
+                  <p className="text-sm text-gray-500">
+                    Society Maintenance Statement
+                  </p>
+                  <div className="mt-3 grid grid-cols-2 gap-x-8 text-sm text-left max-w-lg mx-auto">
+                    <div>
+                      <span className="text-gray-500">Flat No:</span>{" "}
+                      <span className="font-semibold">
+                        {selectedOwner?.blockNo}-{selectedOwner?.flatNo}
+                      </span>
+                    </div>
+                    <div>
+                      <span className="text-gray-500">Owner:</span>{" "}
+                      <span className="font-semibold">
+                        {selectedOwner?.ownerName}
+                      </span>
+                    </div>
+                    <div className="mt-1">
+                      <span className="text-gray-500">Print Date:</span>{" "}
+                      <span className="font-semibold">{printDate}</span>
+                    </div>
+                    <div className="mt-1">
+                      <span className="text-gray-500">Period:</span>{" "}
+                      <span className="font-semibold">
+                        {indivFilter === "all" && "All Time"}
+                        {indivFilter === "last-month" && "Last 30 Days"}
+                        {indivFilter === "last-365" && "Last 365 Days"}
+                        {indivFilter === "custom" &&
+                          `${indivDateFrom || "—"} to ${indivDateTo || "—"}`}
+                      </span>
+                    </div>
+                    <div className="mt-1">
+                      <span className="text-gray-500">Contact:</span>{" "}
+                      <span className="font-semibold">
+                        {selectedOwner?.phone || "—"}
+                      </span>
                     </div>
                   </div>
                 </div>
 
-                {/* Footer */}
-                <div className="border-t border-gray-300 px-5 py-3 flex justify-between text-xs text-gray-400">
-                  <span>Generated by Third Eye Home</span>
-                  <span>{new Date().toLocaleString("en-IN")}</span>
-                </div>
-              </>
+                {loadingStmt ? (
+                  <div className="p-8 text-center">
+                    <Loader2 className="w-5 h-5 animate-spin text-primary mx-auto" />
+                  </div>
+                ) : rows.length === 0 ? (
+                  <div className="p-8 text-center text-sm text-gray-500">
+                    No transactions found for this flat.
+                  </div>
+                ) : (
+                  <>
+                    <div className="overflow-x-auto">
+                      <table className="w-full border-collapse text-sm">
+                        <thead>
+                          <tr className="bg-gray-800 text-white">
+                            <th className="border border-gray-600 px-3 py-2 text-left font-semibold w-8">
+                              #
+                            </th>
+                            <th className="border border-gray-600 px-3 py-2 text-left font-semibold">
+                              Date
+                            </th>
+                            <th className="border border-gray-600 px-3 py-2 text-left font-semibold">
+                              Particulars / Description
+                            </th>
+                            <th className="border border-gray-600 px-3 py-2 text-left font-semibold">
+                              Vch Type
+                            </th>
+                            <th className="border border-gray-600 px-3 py-2 text-right font-semibold">
+                              Debit (₹)
+                            </th>
+                            <th className="border border-gray-600 px-3 py-2 text-right font-semibold">
+                              Credit (₹)
+                            </th>
+                            <th className="border border-gray-600 px-3 py-2 text-right font-semibold">
+                              Balance Due (₹)
+                            </th>
+                            <th className="border border-gray-600 px-3 py-2 text-center font-semibold no-print">
+                              Actions
+                            </th>
+                          </tr>
+                        </thead>
+                        <tbody>
+                          {rows.map((t, i) => {
+                            const isDebit =
+                              t.transactionType === TransactionType.Debit;
+                            const rowBg =
+                              i % 2 === 0 ? "bg-white" : "bg-gray-50";
+                            const isLastEntry = i === rows.length - 1;
+                            return (
+                              <tr key={t.id.toString()} className={rowBg}>
+                                <td className="border border-gray-200 px-3 py-2 text-gray-500">
+                                  {i + 1}
+                                </td>
+                                <td className="border border-gray-200 px-3 py-2 text-gray-600 whitespace-nowrap">
+                                  {formatDate(t.entryDate)}
+                                </td>
+                                <td className="border border-gray-200 px-3 py-2">
+                                  {t.description}
+                                </td>
+                                <td className="border border-gray-200 px-3 py-2">
+                                  <span
+                                    className={`text-xs font-semibold px-2 py-0.5 rounded ${
+                                      isDebit
+                                        ? "bg-red-100 text-red-700"
+                                        : "bg-green-100 text-green-700"
+                                    }`}
+                                  >
+                                    {isDebit ? "Debit Note" : "Receipt"}
+                                  </span>
+                                </td>
+                                <td className="border border-gray-200 px-3 py-2 text-right font-mono">
+                                  {isDebit ? (
+                                    <span className="text-red-600 font-medium">
+                                      {Number(t.amount).toLocaleString("en-IN")}
+                                    </span>
+                                  ) : (
+                                    <span className="text-gray-300">—</span>
+                                  )}
+                                </td>
+                                <td className="border border-gray-200 px-3 py-2 text-right font-mono">
+                                  {!isDebit ? (
+                                    <span className="text-green-600 font-medium">
+                                      {Number(t.amount).toLocaleString("en-IN")}
+                                    </span>
+                                  ) : (
+                                    <span className="text-gray-300">—</span>
+                                  )}
+                                </td>
+                                <td className="border border-gray-200 px-3 py-2 text-right font-mono">
+                                  <span
+                                    className={
+                                      t.runningBalance > 0
+                                        ? "text-red-600 font-semibold"
+                                        : "text-green-600 font-semibold"
+                                    }
+                                  >
+                                    {t.runningBalance.toLocaleString("en-IN")}
+                                    {t.runningBalance > 0 ? " Dr" : " Cr"}
+                                  </span>
+                                </td>
+                                <td className="border border-gray-200 px-3 py-2 text-center no-print">
+                                  {isLastEntry && (
+                                    <div className="flex items-center justify-center gap-1">
+                                      <button
+                                        type="button"
+                                        data-ocid="accounts.edit_button.1"
+                                        onClick={() => openEditModal(t)}
+                                        className="p-1.5 rounded hover:bg-blue-50 text-blue-600 hover:text-blue-700 transition-colors"
+                                        title="Edit this entry"
+                                      >
+                                        <Pencil className="w-3.5 h-3.5" />
+                                      </button>
+                                      <button
+                                        type="button"
+                                        data-ocid="accounts.delete_button.1"
+                                        onClick={() =>
+                                          openDeleteConfirm(BigInt(t.id))
+                                        }
+                                        className="p-1.5 rounded hover:bg-red-50 text-red-500 hover:text-red-700 transition-colors"
+                                        title="Delete this entry"
+                                      >
+                                        <Trash2 className="w-3.5 h-3.5" />
+                                      </button>
+                                    </div>
+                                  )}
+                                </td>
+                              </tr>
+                            );
+                          })}
+                          <tr className="bg-gray-100 font-bold">
+                            <td
+                              colSpan={4}
+                              className="border border-gray-300 px-3 py-2 text-right text-gray-700 uppercase text-xs tracking-wide"
+                            >
+                              Totals
+                            </td>
+                            <td className="border border-gray-300 px-3 py-2 text-right font-mono text-red-700">
+                              {totalDebit.toLocaleString("en-IN")}
+                            </td>
+                            <td className="border border-gray-300 px-3 py-2 text-right font-mono text-green-700">
+                              {totalCredit.toLocaleString("en-IN")}
+                            </td>
+                            <td className="border border-gray-300 px-3 py-2 text-right font-mono">
+                              <span
+                                className={
+                                  pendingBalance > 0
+                                    ? "text-red-700"
+                                    : "text-green-700"
+                                }
+                              >
+                                {Math.abs(pendingBalance).toLocaleString(
+                                  "en-IN",
+                                )}
+                                {pendingBalance > 0 ? " Dr" : " Cr"}
+                              </span>
+                            </td>
+                            <td className="border border-gray-300 px-3 py-2 no-print" />
+                          </tr>
+                        </tbody>
+                      </table>
+                    </div>
+
+                    <div className="border-t border-gray-300 bg-gray-50 px-5 py-4">
+                      <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-2">
+                        <div>
+                          <p className="text-xs text-gray-500 uppercase tracking-wide font-semibold">
+                            Closing Balance Due
+                          </p>
+                          <p
+                            className="text-2xl font-bold mt-0.5"
+                            style={{
+                              color: pendingBalance > 0 ? "#dc2626" : "#16a34a",
+                            }}
+                          >
+                            {formatINR(Math.abs(pendingBalance))}
+                            <span className="text-base font-semibold ml-2">
+                              {pendingBalance > 0 ? "(Dr)" : "(Cr)"}
+                            </span>
+                          </p>
+                        </div>
+                        <div className="text-right">
+                          <p className="text-xs text-gray-500 uppercase tracking-wide font-semibold">
+                            Amount in Words
+                          </p>
+                          <p className="text-sm font-semibold text-gray-700 mt-0.5 max-w-xs sm:text-right">
+                            {numberToWords(Math.abs(pendingBalance))}
+                          </p>
+                        </div>
+                      </div>
+                    </div>
+
+                    <div className="border-t border-gray-300 px-5 py-3 flex justify-between text-xs text-gray-400">
+                      <span>Generated by Third Eye Home</span>
+                      <span>{new Date().toLocaleString("en-IN")}</span>
+                    </div>
+                  </>
+                )}
+              </div>
             )}
-          </div>
+
+            {!selectedId && (
+              <div className="bg-card rounded-xl border border-border shadow-card p-12 text-center text-sm text-muted-foreground">
+                Select a flat owner above to view their account statement.
+              </div>
+            )}
+          </>
         )}
 
-        {!selectedId && (
-          <div className="bg-card rounded-xl border border-border shadow-card p-12 text-center text-sm text-muted-foreground">
-            Select a flat owner above to view their account statement.
-          </div>
+        {/* ======================== SOCIETY STATEMENT TAB ======================== */}
+        {activeTab === "society" && (
+          <>
+            {/* Controls bar */}
+            <div className="bg-card rounded-xl border border-border shadow-card p-5 no-print">
+              <div className="flex flex-wrap gap-2 items-center mb-3">
+                <span className="text-xs text-muted-foreground font-semibold mr-1">
+                  Duration:
+                </span>
+                {(
+                  ["all", "last-month", "last-365", "custom"] as FilterPreset[]
+                ).map((p) => (
+                  <button
+                    key={p}
+                    type="button"
+                    onClick={() => setSocFilter(p)}
+                    className={`px-3 py-1.5 rounded-full text-xs font-semibold transition-colors ${
+                      socFilter === p
+                        ? "bg-primary text-white shadow"
+                        : "border border-border bg-muted text-foreground hover:bg-muted/70"
+                    }`}
+                  >
+                    {p === "all"
+                      ? "All Time"
+                      : p === "last-month"
+                        ? "Last Month"
+                        : p === "last-365"
+                          ? "Last 365 Days"
+                          : "Custom Range"}
+                  </button>
+                ))}
+              </div>
+              {socFilter === "custom" && (
+                <div className="flex flex-wrap gap-3 items-center mb-3">
+                  <div className="flex items-center gap-2">
+                    <label
+                      htmlFor="soc-from"
+                      className="text-xs text-muted-foreground"
+                    >
+                      From:
+                    </label>
+                    <input
+                      id="soc-from"
+                      type="date"
+                      value={socDateFrom}
+                      onChange={(e) => setSocDateFrom(e.target.value)}
+                      className="h-8 rounded-md border border-border bg-background px-2 text-sm focus:outline-none focus:ring-1 focus:ring-primary"
+                    />
+                  </div>
+                  <div className="flex items-center gap-2">
+                    <label
+                      htmlFor="soc-to"
+                      className="text-xs text-muted-foreground"
+                    >
+                      To:
+                    </label>
+                    <input
+                      id="soc-to"
+                      type="date"
+                      value={socDateTo}
+                      onChange={(e) => setSocDateTo(e.target.value)}
+                      className="h-8 rounded-md border border-border bg-background px-2 text-sm focus:outline-none focus:ring-1 focus:ring-primary"
+                    />
+                  </div>
+                </div>
+              )}
+              <div className="flex items-center gap-4 flex-wrap">
+                <div className="flex-1">
+                  <p className="text-sm font-semibold">
+                    Society Overall Statement
+                  </p>
+                  <p className="text-xs text-muted-foreground mt-0.5">
+                    Consolidated Tally-style statement for all flat owners
+                  </p>
+                </div>
+                <div className="flex gap-2 ml-auto flex-wrap">
+                  <Button
+                    data-ocid="society.generate.button"
+                    onClick={loadSocietyStatement}
+                    disabled={loadingSociety}
+                    className="bg-primary text-white h-9 text-sm"
+                  >
+                    {loadingSociety ? (
+                      <Loader2 className="w-4 h-4 animate-spin mr-2" />
+                    ) : (
+                      <FileText className="w-4 h-4 mr-1" />
+                    )}
+                    Generate Statement
+                  </Button>
+                  {societyLoaded && (
+                    <>
+                      <Button
+                        variant="outline"
+                        onClick={handleSocietyPrint}
+                        className="h-9 text-sm gap-2"
+                        data-ocid="society.print.button"
+                      >
+                        <Printer className="w-4 h-4" />
+                        Print
+                      </Button>
+                      <Button
+                        variant="outline"
+                        onClick={handleSocietyPDF}
+                        className="h-9 text-sm gap-2"
+                        data-ocid="society.pdf.button"
+                      >
+                        <Download className="w-4 h-4" />
+                        PDF
+                      </Button>
+                    </>
+                  )}
+                </div>
+              </div>
+            </div>
+
+            {/* Society statement document */}
+            {!societyLoaded && !loadingSociety && (
+              <div
+                className="bg-card rounded-xl border border-border shadow-card p-12 text-center text-sm text-muted-foreground"
+                data-ocid="society.empty_state"
+              >
+                Click "Generate Statement" to load the overall society
+                statement.
+              </div>
+            )}
+
+            {loadingSociety && (
+              <div
+                className="bg-card rounded-xl border border-border p-12 text-center"
+                data-ocid="society.loading_state"
+              >
+                <Loader2 className="w-6 h-6 animate-spin text-primary mx-auto mb-2" />
+                <p className="text-sm text-muted-foreground">
+                  Loading society statement…
+                </p>
+              </div>
+            )}
+
+            {societyLoaded && !loadingSociety && (
+              <div
+                id="society-statement"
+                className="bg-white border border-gray-300 rounded-xl overflow-hidden"
+              >
+                {/* Society Statement Header */}
+                <div className="border-b-2 border-gray-800 p-6 text-center bg-gray-900 text-white">
+                  <h1 className="text-2xl font-bold uppercase tracking-widest">
+                    THIRD EYE HOME
+                  </h1>
+                  <p className="text-sm font-semibold mt-1 text-gray-300">
+                    Society Overall Maintenance Statement
+                  </p>
+                  <div className="flex justify-center gap-8 mt-3 text-xs text-gray-400">
+                    <span>
+                      Print Date:{" "}
+                      <strong className="text-white">{printDate}</strong>
+                    </span>
+                    <span>
+                      Period:{" "}
+                      <strong className="text-white">
+                        {socFilter === "all" && "All Time"}
+                        {socFilter === "last-month" && "Last 30 Days"}
+                        {socFilter === "last-365" && "Last 365 Days"}
+                        {socFilter === "custom" &&
+                          `${socDateFrom || "—"} to ${socDateTo || "—"}`}
+                      </strong>
+                    </span>
+                    <span>
+                      Total Flats:{" "}
+                      <strong className="text-white">
+                        {societyOwners.length}
+                      </strong>
+                    </span>
+                    <span>
+                      Flats with Dues:{" "}
+                      <strong className="text-yellow-400">
+                        {flatsWithDues}
+                      </strong>
+                    </span>
+                  </div>
+                </div>
+
+                {/* Per-owner sections */}
+                {societyOwners.length === 0 ? (
+                  <div className="p-8 text-center text-sm text-gray-500">
+                    No flat owners found.
+                  </div>
+                ) : (
+                  <div>
+                    {societyData.map(
+                      (
+                        {
+                          owner,
+                          ownerRows,
+                          ownerDebit,
+                          ownerCredit,
+                          ownerBalance,
+                        },
+                        ownerIdx,
+                      ) => (
+                        <div
+                          key={owner.id.toString()}
+                          className="border-b border-gray-300"
+                          data-ocid={`society.item.${ownerIdx + 1}`}
+                        >
+                          {/* Owner section header */}
+                          <div className="bg-gray-700 text-white px-4 py-2 flex flex-wrap gap-4 text-sm font-semibold">
+                            <span>
+                              Flat: {owner.blockNo}-{owner.flatNo}
+                            </span>
+                            <span>|</span>
+                            <span>Owner: {owner.ownerName}</span>
+                            <span>|</span>
+                            <span>Phone: {owner.phone || "—"}</span>
+                            <span className="ml-auto">
+                              Balance:{" "}
+                              <span
+                                className={
+                                  ownerBalance > 0
+                                    ? "text-red-300"
+                                    : "text-green-300"
+                                }
+                              >
+                                {formatINR(Math.abs(ownerBalance))}{" "}
+                                {ownerBalance > 0
+                                  ? "Dr"
+                                  : ownerBalance < 0
+                                    ? "Cr"
+                                    : "Nil"}
+                              </span>
+                            </span>
+                          </div>
+
+                          {/* Owner transactions table */}
+                          <div className="overflow-x-auto">
+                            <table className="w-full border-collapse text-xs">
+                              <thead>
+                                <tr className="bg-gray-100 text-gray-700">
+                                  <th className="border border-gray-200 px-2 py-1.5 text-left w-8">
+                                    #
+                                  </th>
+                                  <th className="border border-gray-200 px-2 py-1.5 text-left">
+                                    Date
+                                  </th>
+                                  <th className="border border-gray-200 px-2 py-1.5 text-left">
+                                    Particulars / Description
+                                  </th>
+                                  <th className="border border-gray-200 px-2 py-1.5 text-left">
+                                    Vch Type
+                                  </th>
+                                  <th className="border border-gray-200 px-2 py-1.5 text-right">
+                                    Debit (₹)
+                                  </th>
+                                  <th className="border border-gray-200 px-2 py-1.5 text-right">
+                                    Credit (₹)
+                                  </th>
+                                  <th className="border border-gray-200 px-2 py-1.5 text-right">
+                                    Balance Due (₹)
+                                  </th>
+                                </tr>
+                              </thead>
+                              <tbody>
+                                {/* Opening balance row */}
+                                <tr className="bg-blue-50">
+                                  <td className="border border-gray-200 px-2 py-1.5 text-gray-400">
+                                    —
+                                  </td>
+                                  <td className="border border-gray-200 px-2 py-1.5 text-gray-500">
+                                    —
+                                  </td>
+                                  <td
+                                    className="border border-gray-200 px-2 py-1.5 font-semibold text-blue-700"
+                                    colSpan={2}
+                                  >
+                                    Opening Balance
+                                  </td>
+                                  <td className="border border-gray-200 px-2 py-1.5 text-right text-gray-400">
+                                    —
+                                  </td>
+                                  <td className="border border-gray-200 px-2 py-1.5 text-right text-gray-400">
+                                    —
+                                  </td>
+                                  <td className="border border-gray-200 px-2 py-1.5 text-right font-semibold text-blue-700">
+                                    0.00
+                                  </td>
+                                </tr>
+
+                                {ownerRows.length === 0 ? (
+                                  <tr>
+                                    <td
+                                      colSpan={7}
+                                      className="border border-gray-200 px-2 py-3 text-center text-gray-400 italic"
+                                    >
+                                      No transactions
+                                    </td>
+                                  </tr>
+                                ) : (
+                                  ownerRows.map((t, i) => {
+                                    const isDebit =
+                                      t.transactionType ===
+                                      TransactionType.Debit;
+                                    const rowBg =
+                                      i % 2 === 0 ? "bg-white" : "bg-gray-50";
+                                    return (
+                                      <tr
+                                        key={t.id.toString()}
+                                        className={rowBg}
+                                      >
+                                        <td className="border border-gray-200 px-2 py-1.5 text-gray-400">
+                                          {i + 1}
+                                        </td>
+                                        <td className="border border-gray-200 px-2 py-1.5 text-gray-600 whitespace-nowrap">
+                                          {formatDate(t.entryDate)}
+                                        </td>
+                                        <td className="border border-gray-200 px-2 py-1.5">
+                                          {t.description}
+                                        </td>
+                                        <td className="border border-gray-200 px-2 py-1.5">
+                                          <span
+                                            className={`text-xs font-semibold px-1.5 py-0.5 rounded ${
+                                              isDebit
+                                                ? "bg-red-100 text-red-700"
+                                                : "bg-green-100 text-green-700"
+                                            }`}
+                                          >
+                                            {isDebit ? "Debit Note" : "Receipt"}
+                                          </span>
+                                        </td>
+                                        <td className="border border-gray-200 px-2 py-1.5 text-right font-mono">
+                                          {isDebit ? (
+                                            <span className="text-red-600">
+                                              {Number(t.amount).toLocaleString(
+                                                "en-IN",
+                                              )}
+                                            </span>
+                                          ) : (
+                                            <span className="text-gray-300">
+                                              —
+                                            </span>
+                                          )}
+                                        </td>
+                                        <td className="border border-gray-200 px-2 py-1.5 text-right font-mono">
+                                          {!isDebit ? (
+                                            <span className="text-green-600">
+                                              {Number(t.amount).toLocaleString(
+                                                "en-IN",
+                                              )}
+                                            </span>
+                                          ) : (
+                                            <span className="text-gray-300">
+                                              —
+                                            </span>
+                                          )}
+                                        </td>
+                                        <td className="border border-gray-200 px-2 py-1.5 text-right font-mono">
+                                          <span
+                                            className={
+                                              t.runningBalance > 0
+                                                ? "text-red-600 font-semibold"
+                                                : "text-green-600 font-semibold"
+                                            }
+                                          >
+                                            {t.runningBalance.toLocaleString(
+                                              "en-IN",
+                                            )}
+                                            {t.runningBalance > 0
+                                              ? " Dr"
+                                              : " Cr"}
+                                          </span>
+                                        </td>
+                                      </tr>
+                                    );
+                                  })
+                                )}
+
+                                {/* Owner totals row */}
+                                <tr className="bg-gray-100 font-bold text-xs">
+                                  <td
+                                    colSpan={4}
+                                    className="border border-gray-300 px-2 py-1.5 text-right text-gray-700 uppercase tracking-wide"
+                                  >
+                                    Totals
+                                  </td>
+                                  <td className="border border-gray-300 px-2 py-1.5 text-right font-mono text-red-700">
+                                    {ownerDebit.toLocaleString("en-IN")}
+                                  </td>
+                                  <td className="border border-gray-300 px-2 py-1.5 text-right font-mono text-green-700">
+                                    {ownerCredit.toLocaleString("en-IN")}
+                                  </td>
+                                  <td className="border border-gray-300 px-2 py-1.5 text-right font-mono">
+                                    <span
+                                      className={
+                                        ownerBalance > 0
+                                          ? "text-red-700"
+                                          : "text-green-700"
+                                      }
+                                    >
+                                      {Math.abs(ownerBalance).toLocaleString(
+                                        "en-IN",
+                                      )}
+                                      {ownerBalance > 0 ? " Dr" : " Cr"}
+                                    </span>
+                                  </td>
+                                </tr>
+                              </tbody>
+                            </table>
+                          </div>
+
+                          {/* Closing balance in words per owner */}
+                          <div className="bg-gray-50 px-4 py-2 flex flex-col sm:flex-row sm:items-center sm:justify-between gap-1 text-xs">
+                            <span className="text-gray-500">
+                              Closing Balance:
+                              <strong
+                                className={`ml-2 ${ownerBalance > 0 ? "text-red-600" : "text-green-600"}`}
+                              >
+                                {formatINR(Math.abs(ownerBalance))}{" "}
+                                {ownerBalance > 0 ? "(Dr)" : "(Cr)"}
+                              </strong>
+                            </span>
+                            <span className="text-gray-600 italic">
+                              {numberToWords(Math.abs(ownerBalance))}{" "}
+                              {ownerBalance > 0 ? "(Dr)" : "(Cr)"}
+                            </span>
+                          </div>
+                        </div>
+                      ),
+                    )}
+
+                    {/* Grand Totals */}
+                    <div className="bg-gray-900 text-white p-5">
+                      <h3 className="text-sm font-bold uppercase tracking-wide text-gray-300 mb-3">
+                        Grand Totals — All Flats
+                      </h3>
+                      <div className="overflow-x-auto">
+                        <table className="w-full border-collapse text-sm">
+                          <thead>
+                            <tr className="text-gray-400 text-xs uppercase">
+                              <th className="border border-gray-700 px-3 py-2 text-left">
+                                Description
+                              </th>
+                              <th className="border border-gray-700 px-3 py-2 text-right">
+                                Total Debit (₹)
+                              </th>
+                              <th className="border border-gray-700 px-3 py-2 text-right">
+                                Total Credit (₹)
+                              </th>
+                              <th className="border border-gray-700 px-3 py-2 text-right">
+                                Net Balance Due (₹)
+                              </th>
+                            </tr>
+                          </thead>
+                          <tbody>
+                            <tr className="font-bold">
+                              <td className="border border-gray-700 px-3 py-2">
+                                All Flat Owners Combined
+                              </td>
+                              <td className="border border-gray-700 px-3 py-2 text-right font-mono text-red-400">
+                                {grandDebit.toLocaleString("en-IN")}
+                              </td>
+                              <td className="border border-gray-700 px-3 py-2 text-right font-mono text-green-400">
+                                {grandCredit.toLocaleString("en-IN")}
+                              </td>
+                              <td className="border border-gray-700 px-3 py-2 text-right font-mono">
+                                <span
+                                  className={
+                                    grandBalance > 0
+                                      ? "text-red-400"
+                                      : "text-green-400"
+                                  }
+                                >
+                                  {Math.abs(grandBalance).toLocaleString(
+                                    "en-IN",
+                                  )}
+                                  {grandBalance > 0 ? " Dr" : " Cr"}
+                                </span>
+                              </td>
+                            </tr>
+                          </tbody>
+                        </table>
+                      </div>
+                      <div className="mt-4 grid sm:grid-cols-2 gap-4">
+                        <div>
+                          <p className="text-xs text-gray-400 uppercase tracking-wide">
+                            Overall Balance Due in Words
+                          </p>
+                          <p className="text-sm font-semibold text-yellow-300 mt-1">
+                            {numberToWords(Math.abs(grandBalance))}{" "}
+                            {grandBalance > 0 ? "(Dr)" : "(Cr)"}
+                          </p>
+                        </div>
+                        <div className="sm:text-right">
+                          <p className="text-xs text-gray-400 uppercase tracking-wide">
+                            Flats with Pending Dues
+                          </p>
+                          <p className="text-2xl font-bold text-yellow-400 mt-1">
+                            {flatsWithDues}
+                            <span className="text-sm font-normal text-gray-400 ml-2">
+                              / {societyOwners.length} flats
+                            </span>
+                          </p>
+                        </div>
+                      </div>
+                    </div>
+                  </div>
+                )}
+
+                {/* Society Statement Footer */}
+                <div className="border-t border-gray-300 px-5 py-3 flex justify-between text-xs text-gray-400 bg-gray-50">
+                  <span>Generated by Third Eye Home</span>
+                  <span>Date: {new Date().toLocaleString("en-IN")}</span>
+                </div>
+              </div>
+            )}
+          </>
         )}
 
         {/* Add Manual Entry Modal */}

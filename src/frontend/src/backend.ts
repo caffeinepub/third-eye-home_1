@@ -137,6 +137,7 @@ export interface backendInterface {
     deleteTransaction(id: bigint): Promise<void>;
     updateTransaction(id: bigint, transactionType: TransactionType, description: string, amount: bigint, monthYear: string): Promise<void>;
     getAllFlatOwners(): Promise<Array<FlatOwnerPublic>>;
+    getAllTransactions(): Promise<Array<Transaction>>;
     getCallerUserProfile(): Promise<UserProfile | null>;
     getCallerUserRole(): Promise<UserRole>;
     getFlatStatement(flatOwnerId: bigint): Promise<Array<Transaction>>;
@@ -265,6 +266,20 @@ export class Backend implements backendInterface {
         } else {
             const result = await this.actor.getAllFlatOwners();
             return result;
+        }
+    }
+    async getAllTransactions(): Promise<Array<Transaction>> {
+        if (this.processError) {
+            try {
+                const result = await this.actor.getAllTransactions();
+                return from_candid_vec_n11(this._uploadFile, this._downloadFile, result);
+            } catch (e) {
+                this.processError(e);
+                throw new Error("unreachable");
+            }
+        } else {
+            const result = await this.actor.getAllTransactions();
+            return from_candid_vec_n11(this._uploadFile, this._downloadFile, result);
         }
     }
     async getCallerUserProfile(): Promise<UserProfile | null> {

@@ -1,6 +1,6 @@
 import { Button } from "@/components/ui/button";
 import { Download, Loader2, Printer } from "lucide-react";
-import { useEffect, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import type { Transaction } from "../../backend.d";
 import { TransactionType } from "../../backend.d";
 import { useActor } from "../../hooks/useActor";
@@ -15,6 +15,13 @@ interface Props {
   phone?: string;
 }
 
+type FilterPreset = "all" | "last-month" | "last-365" | "custom";
+
+function getEntryDateMs(entryDate: bigint | string): number {
+  if (typeof entryDate === "string") return new Date(entryDate).getTime();
+  return Number(entryDate) / 1_000_000;
+}
+
 export default function OwnerStatementPage({
   ownerId,
   ownerName,
@@ -26,6 +33,11 @@ export default function OwnerStatementPage({
   const [statement, setStatement] = useState<Transaction[]>([]);
   const [loading, setLoading] = useState(true);
 
+  // Date filter state
+  const [filterPreset, setFilterPreset] = useState<FilterPreset>("all");
+  const [dateFrom, setDateFrom] = useState("");
+  const [dateTo, setDateTo] = useState("");
+
   useEffect(() => {
     if (!actor || isFetching) return;
     setLoading(true);
@@ -36,8 +48,30 @@ export default function OwnerStatementPage({
       .finally(() => setLoading(false));
   }, [actor, isFetching, ownerId]);
 
+  // Apply date filter
+  const filteredStatement = useMemo(() => {
+    const now = Date.now();
+    return statement.filter((t) => {
+      const ms = getEntryDateMs(t.entryDate);
+      if (filterPreset === "last-month") {
+        return ms >= now - 30 * 24 * 60 * 60 * 1000;
+      }
+      if (filterPreset === "last-365") {
+        return ms >= now - 365 * 24 * 60 * 60 * 1000;
+      }
+      if (filterPreset === "custom") {
+        const from = dateFrom ? new Date(dateFrom).getTime() : 0;
+        const to = dateTo
+          ? new Date(dateTo).getTime() + 86400000
+          : Number.POSITIVE_INFINITY;
+        return ms >= from && ms <= to;
+      }
+      return true;
+    });
+  }, [statement, filterPreset, dateFrom, dateTo]);
+
   // Oldest first, newest last — proper Tally ledger order
-  const chronological = [...statement].reverse();
+  const chronological = [...filteredStatement].reverse();
   const rows = chronological.map((t, i) => {
     const runningBalance = chronological.slice(0, i + 1).reduce((acc, tx) => {
       return tx.transactionType === TransactionType.Debit
@@ -47,10 +81,10 @@ export default function OwnerStatementPage({
     return { ...t, runningBalance };
   });
 
-  const totalDebit = statement
+  const totalDebit = filteredStatement
     .filter((t) => t.transactionType === TransactionType.Debit)
     .reduce((a, t) => a + Number(t.amount), 0);
-  const totalCredit = statement
+  const totalCredit = filteredStatement
     .filter((t) => t.transactionType === TransactionType.Credit)
     .reduce((a, t) => a + Number(t.amount), 0);
   const pendingBalance =
@@ -65,6 +99,13 @@ export default function OwnerStatementPage({
     document.title = originalTitle;
   };
 
+  const presetLabel: Record<FilterPreset, string> = {
+    all: "All Time",
+    "last-month": "Last Month",
+    "last-365": "Last 365 Days",
+    custom: "Custom Range",
+  };
+
   return (
     <>
       <style>{`
@@ -77,24 +118,86 @@ export default function OwnerStatementPage({
       `}</style>
 
       <div className="space-y-4">
-        {/* Action bar */}
-        <div className="flex justify-end gap-2 no-print">
-          <Button
-            variant="outline"
-            onClick={handlePrint}
-            className="h-9 text-sm gap-2"
-          >
-            <Printer className="w-4 h-4" />
-            Print
-          </Button>
-          <Button
-            variant="outline"
-            onClick={handleDownloadPDF}
-            className="h-9 text-sm gap-2"
-          >
-            <Download className="w-4 h-4" />
-            Download PDF
-          </Button>
+        {/* Filter + Action bar */}
+        <div className="bg-card rounded-xl border border-border p-4 no-print space-y-3">
+          {/* Preset buttons */}
+          <div className="flex flex-wrap gap-2 items-center">
+            <span className="text-xs text-muted-foreground font-semibold mr-1">
+              Duration:
+            </span>
+            {(
+              ["all", "last-month", "last-365", "custom"] as FilterPreset[]
+            ).map((p) => (
+              <button
+                key={p}
+                type="button"
+                onClick={() => setFilterPreset(p)}
+                className={`px-3 py-1.5 rounded-full text-xs font-semibold transition-colors ${
+                  filterPreset === p
+                    ? "bg-primary text-white shadow"
+                    : "border border-border bg-muted text-foreground hover:bg-muted/70"
+                }`}
+              >
+                {presetLabel[p]}
+              </button>
+            ))}
+          </div>
+
+          {/* Custom date range */}
+          {filterPreset === "custom" && (
+            <div className="flex flex-wrap gap-3 items-center">
+              <div className="flex items-center gap-2">
+                <label
+                  htmlFor="owner-from"
+                  className="text-xs text-muted-foreground"
+                >
+                  From:
+                </label>
+                <input
+                  id="owner-from"
+                  type="date"
+                  value={dateFrom}
+                  onChange={(e) => setDateFrom(e.target.value)}
+                  className="h-8 rounded-md border border-border bg-background px-2 text-sm focus:outline-none focus:ring-1 focus:ring-primary"
+                />
+              </div>
+              <div className="flex items-center gap-2">
+                <label
+                  htmlFor="owner-to"
+                  className="text-xs text-muted-foreground"
+                >
+                  To:
+                </label>
+                <input
+                  id="owner-to"
+                  type="date"
+                  value={dateTo}
+                  onChange={(e) => setDateTo(e.target.value)}
+                  className="h-8 rounded-md border border-border bg-background px-2 text-sm focus:outline-none focus:ring-1 focus:ring-primary"
+                />
+              </div>
+            </div>
+          )}
+
+          {/* Action buttons */}
+          <div className="flex justify-end gap-2">
+            <Button
+              variant="outline"
+              onClick={handlePrint}
+              className="h-9 text-sm gap-2"
+            >
+              <Printer className="w-4 h-4" />
+              Print
+            </Button>
+            <Button
+              variant="outline"
+              onClick={handleDownloadPDF}
+              className="h-9 text-sm gap-2"
+            >
+              <Download className="w-4 h-4" />
+              Download PDF
+            </Button>
+          </div>
         </div>
 
         {loading ? (
@@ -139,18 +242,28 @@ export default function OwnerStatementPage({
                   </span>
                 </div>
                 <div className="mt-1">
+                  <span className="text-gray-500">Period:</span>{" "}
+                  <span className="font-semibold">
+                    {filterPreset === "all" && "All Time"}
+                    {filterPreset === "last-month" && "Last 30 Days"}
+                    {filterPreset === "last-365" && "Last 365 Days"}
+                    {filterPreset === "custom" &&
+                      `${dateFrom || "—"} to ${dateTo || "—"}`}
+                  </span>
+                </div>
+                <div className="mt-1">
                   <span className="text-gray-500">Contact:</span>{" "}
                   <span className="font-semibold">{phone || "—"}</span>
                 </div>
               </div>
             </div>
 
-            {statement.length === 0 ? (
+            {filteredStatement.length === 0 ? (
               <div
                 data-ocid="owner.statement.empty_state"
                 className="p-8 text-center text-sm text-gray-500"
               >
-                No transactions found.
+                No transactions found for the selected period.
               </div>
             ) : (
               <>

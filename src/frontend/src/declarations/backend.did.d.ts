@@ -56,6 +56,7 @@ export interface _SERVICE {
   'deleteFlatOwner' : ActorMethod<[bigint], undefined>,
   'deleteTransaction' : ActorMethod<[bigint], undefined>,
   'getAllFlatOwners' : ActorMethod<[], Array<FlatOwnerPublic>>,
+  'getAllTransactions' : ActorMethod<[], Array<Transaction>>,
   'getCallerUserProfile' : ActorMethod<[], [] | [UserProfile]>,
   'getCallerUserRole' : ActorMethod<[], UserRole>,
   'getFlatStatement' : ActorMethod<[bigint], Array<Transaction>>,

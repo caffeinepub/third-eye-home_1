@@ -53,6 +53,7 @@ export interface backendInterface {
     deleteFlatOwner(id: bigint): Promise<void>;
     deleteTransaction(id: bigint): Promise<void>;
     getAllFlatOwners(): Promise<Array<FlatOwnerPublic>>;
+    getAllTransactions(): Promise<Array<Transaction>>;
     getCallerUserProfile(): Promise<UserProfile | null>;
     getCallerUserRole(): Promise<UserRole>;
     getFlatStatement(flatOwnerId: bigint): Promise<Array<Transaction>>;
