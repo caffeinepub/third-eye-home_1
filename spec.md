@@ -1,23 +1,20 @@
 # Third Eye Home
 
 ## Current State
-The backend stores flat owners and transactions in non-stable Maps and non-stable counter variables. This means every time a new app version is deployed, all data (residents, transactions, maintenance history) is erased.
+Admin Settings page has Download Backup, Restore Backup, Society Details, Admin Access, and About sections. All financial transactions are stored in the `transactions` map on the backend.
 
 ## Requested Changes (Diff)
 
 ### Add
-- Stable backup arrays (`_flatOwnersStable`, `_transactionsStable`) to persist data across upgrades
-- `system func preupgrade()` to serialize Maps into stable arrays before upgrade
-- `system func postupgrade()` to restore Maps from stable arrays after upgrade
+- Backend: `resetFinancialData()` function that clears all transactions and resets the transaction ID counter, without touching flat owner profiles or their `maintenanceAmount`.
+- Frontend: "Reset Financial Data" button in Settings page with a red/danger-styled card, confirmation dialog before executing, and success/error toast.
 
 ### Modify
-- `nextFlatOwnerId` and `nextTransactionId` counters changed to `stable var` so IDs never reset
+- Nothing else changed.
 
 ### Remove
-- Nothing removed
+- Nothing removed.
 
 ## Implementation Plan
-1. Declare stable backup arrays for flatOwners and transactions
-2. Make ID counters stable
-3. Add preupgrade hook to dump Maps into stable arrays
-4. Add postupgrade hook to reload Maps from stable arrays and clear the backup arrays
+1. Add `resetFinancialData` shared function to `main.mo` -- clears `transactions` map, resets `nextTransactionId` to 1, calls `syncStable()`.
+2. Add a danger-styled card in `SettingsPage.tsx` with a "Reset Financial Data" button that calls `actor.resetFinancialData()` after a confirmation dialog.

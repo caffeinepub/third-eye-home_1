@@ -263,6 +263,16 @@ actor {
     };
   };
 
+  // Reset all financial data (transactions only) -- member profiles and maintenance amounts are preserved
+  public shared func resetFinancialData() : async () {
+    let allTxIds = transactions.keys().toArray();
+    for (id in allTxIds.vals()) {
+      transactions.remove(id);
+    };
+    nextTransactionId := 1;
+    syncStable();
+  };
+
   public query func getFlatStatement(flatOwnerId : Nat) : async [Transaction] {
     transactions.values().toArray().filter(
       func(t) { t.flatOwnerId == flatOwnerId }

@@ -152,6 +152,7 @@ export interface backendInterface {
     saveCallerUserProfile(profile: UserProfile): Promise<void>;
     updateFlatOwner(id: bigint, blockNo: string, flatNo: string, ownerName: string, phone: string, maintenanceAmount: bigint): Promise<void>;
     updateMaintenanceDebit(monthYear: string): Promise<void>;
+    resetFinancialData(): Promise<void>;
 }
 import type { FlatOwnerPublic as _FlatOwnerPublic, Time as _Time, Transaction as _Transaction, TransactionType as _TransactionType, UserProfile as _UserProfile, UserRole as _UserRole } from "./declarations/backend.did.d.ts";
 export class Backend implements backendInterface {
@@ -475,6 +476,20 @@ export class Backend implements backendInterface {
             }
         } else {
             const result = await this.actor.updateMaintenanceDebit(arg0);
+            return result;
+        }
+    }
+    async resetFinancialData(): Promise<void> {
+        if (this.processError) {
+            try {
+                const result = await this.actor.resetFinancialData();
+                return result;
+            } catch (e) {
+                this.processError(e);
+                throw new Error("unreachable");
+            }
+        } else {
+            const result = await this.actor.resetFinancialData();
             return result;
         }
     }
