@@ -1,3 +1,13 @@
+import {
+  AlertDialog,
+  AlertDialogAction,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
+} from "@/components/ui/alert-dialog";
 import { Button } from "@/components/ui/button";
 import {
   Dialog,
@@ -15,8 +25,8 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select";
-import { Download, Loader2, Plus, Printer } from "lucide-react";
-import { useEffect, useRef, useState } from "react";
+import { Download, Loader2, Pencil, Plus, Printer, Trash2 } from "lucide-react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import { toast } from "sonner";
 import type {
   FlatOwnerPublic as FlatOwner,
@@ -43,6 +53,26 @@ export default function AccountsPage() {
   });
   const printRef = useRef<HTMLDivElement>(null);
 
+  // Edit state
+  const [showEditModal, setShowEditModal] = useState(false);
+  const [editTransactionId, setEditTransactionId] = useState<bigint | null>(
+    null,
+  );
+  const [editForm, setEditForm] = useState({
+    type: TransactionType.Debit,
+    description: "",
+    amount: "",
+    monthYear: getCurrentMonthYear(),
+  });
+  const [editSaving, setEditSaving] = useState(false);
+
+  // Delete state
+  const [showDeleteConfirm, setShowDeleteConfirm] = useState(false);
+  const [deleteTransactionId, setDeleteTransactionId] = useState<bigint | null>(
+    null,
+  );
+  const [deleting, setDeleting] = useState(false);
+
   useEffect(() => {
     if (!actor || isFetching) return;
     actor
@@ -51,15 +81,22 @@ export default function AccountsPage() {
       .catch(() => null);
   }, [actor, isFetching]);
 
-  useEffect(() => {
+  const loadStatement = useCallback(async () => {
     if (!actor || !selectedId) return;
     setLoadingStmt(true);
-    actor
-      .getFlatStatement(BigInt(selectedId))
-      .then(setStatement)
-      .catch(() => toast.error("Failed to load statement"))
-      .finally(() => setLoadingStmt(false));
+    try {
+      const updated = await actor.getFlatStatement(BigInt(selectedId));
+      setStatement(updated);
+    } catch {
+      toast.error("Failed to load statement");
+    } finally {
+      setLoadingStmt(false);
+    }
   }, [actor, selectedId]);
+
+  useEffect(() => {
+    loadStatement();
+  }, [loadStatement]);
 
   // Compute running balance rows
   const rows = statement.map((t, i) => {
@@ -93,12 +130,64 @@ export default function AccountsPage() {
       );
       toast.success("Transaction added");
       setShowModal(false);
-      const updated = await actor.getFlatStatement(BigInt(selectedId));
-      setStatement(updated);
+      await loadStatement();
     } catch (e: any) {
       toast.error(e?.message || "Failed to add entry");
     } finally {
       setSaving(false);
+    }
+  };
+
+  const openEditModal = (t: (typeof rows)[0]) => {
+    setEditTransactionId(BigInt(t.id));
+    setEditForm({
+      type: t.transactionType as TransactionType,
+      description: t.description,
+      amount: Number(t.amount).toString(),
+      monthYear: t.date || getCurrentMonthYear(),
+    });
+    setShowEditModal(true);
+  };
+
+  const handleEditSave = async () => {
+    if (!actor || editTransactionId === null) return;
+    setEditSaving(true);
+    try {
+      await actor.updateTransaction(
+        editTransactionId,
+        editForm.type,
+        editForm.description,
+        BigInt(editForm.amount || "0"),
+        editForm.monthYear,
+      );
+      toast.success("Entry updated");
+      setShowEditModal(false);
+      await loadStatement();
+    } catch (e: any) {
+      toast.error(e?.message || "Failed to update entry");
+    } finally {
+      setEditSaving(false);
+    }
+  };
+
+  const openDeleteConfirm = (id: bigint) => {
+    setDeleteTransactionId(id);
+    setShowDeleteConfirm(true);
+  };
+
+  const handleDelete = async () => {
+    if (!actor || deleteTransactionId === null) return;
+    setDeleting(true);
+    try {
+      await actor.deleteTransaction(deleteTransactionId);
+      toast.success("Entry deleted");
+      setShowDeleteConfirm(false);
+      setDeleteTransactionId(null);
+      await loadStatement();
+    } catch (e: any) {
+      toast.error(e?.message || "Failed to delete entry");
+    } finally {
+      setDeleting(false);
     }
   };
 
@@ -274,6 +363,9 @@ export default function AccountsPage() {
                         <th className="border border-gray-600 px-3 py-2 text-right font-semibold">
                           Balance Due (₹)
                         </th>
+                        <th className="border border-gray-600 px-3 py-2 text-center font-semibold no-print">
+                          Actions
+                        </th>
                       </tr>
                     </thead>
                     <tbody>
@@ -281,6 +373,7 @@ export default function AccountsPage() {
                         const isDebit =
                           t.transactionType === TransactionType.Debit;
                         const rowBg = i % 2 === 0 ? "bg-white" : "bg-gray-50";
+                        const isLastEntry = i === 0;
                         return (
                           <tr key={t.id.toString()} className={rowBg}>
                             <td className="border border-gray-200 px-3 py-2 text-gray-500">
@@ -333,6 +426,32 @@ export default function AccountsPage() {
                                 {t.runningBalance > 0 ? " Dr" : " Cr"}
                               </span>
                             </td>
+                            <td className="border border-gray-200 px-3 py-2 text-center no-print">
+                              {isLastEntry && (
+                                <div className="flex items-center justify-center gap-1">
+                                  <button
+                                    type="button"
+                                    data-ocid="accounts.edit_button.1"
+                                    onClick={() => openEditModal(t)}
+                                    className="p-1.5 rounded hover:bg-blue-50 text-blue-600 hover:text-blue-700 transition-colors"
+                                    title="Edit this entry"
+                                  >
+                                    <Pencil className="w-3.5 h-3.5" />
+                                  </button>
+                                  <button
+                                    type="button"
+                                    data-ocid="accounts.delete_button.1"
+                                    onClick={() =>
+                                      openDeleteConfirm(BigInt(t.id))
+                                    }
+                                    className="p-1.5 rounded hover:bg-red-50 text-red-500 hover:text-red-700 transition-colors"
+                                    title="Delete this entry"
+                                  >
+                                    <Trash2 className="w-3.5 h-3.5" />
+                                  </button>
+                                </div>
+                              )}
+                            </td>
                           </tr>
                         );
                       })}
@@ -363,6 +482,7 @@ export default function AccountsPage() {
                             {pendingBalance > 0 ? " Dr" : " Cr"}
                           </span>
                         </td>
+                        <td className="border border-gray-300 px-3 py-2 no-print" />
                       </tr>
                     </tbody>
                   </table>
@@ -508,6 +628,142 @@ export default function AccountsPage() {
             </DialogFooter>
           </DialogContent>
         </Dialog>
+
+        {/* Edit Entry Modal */}
+        <Dialog
+          open={showEditModal}
+          onOpenChange={(o) => !o && setShowEditModal(false)}
+        >
+          <DialogContent
+            data-ocid="accounts.edit.dialog"
+            className="max-w-sm no-print"
+          >
+            <DialogHeader>
+              <DialogTitle>Edit Last Entry</DialogTitle>
+            </DialogHeader>
+            <div className="space-y-3">
+              <div>
+                <Label className="text-xs">Transaction Type</Label>
+                <Select
+                  value={editForm.type}
+                  onValueChange={(v) =>
+                    setEditForm((p) => ({ ...p, type: v as TransactionType }))
+                  }
+                >
+                  <SelectTrigger
+                    data-ocid="accounts.edit_type.select"
+                    className="mt-1 h-9"
+                  >
+                    <SelectValue />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value={TransactionType.Debit}>Debit</SelectItem>
+                    <SelectItem value={TransactionType.Credit}>
+                      Credit
+                    </SelectItem>
+                  </SelectContent>
+                </Select>
+              </div>
+              <div>
+                <Label className="text-xs">Description</Label>
+                <Input
+                  data-ocid="accounts.edit_description.input"
+                  value={editForm.description}
+                  onChange={(e) =>
+                    setEditForm((p) => ({ ...p, description: e.target.value }))
+                  }
+                  placeholder="Maintenance charge / Payment received"
+                  className="mt-1 h-9 text-sm"
+                />
+              </div>
+              <div>
+                <Label className="text-xs">Amount (₹)</Label>
+                <Input
+                  data-ocid="accounts.edit_amount.input"
+                  value={editForm.amount}
+                  onChange={(e) =>
+                    setEditForm((p) => ({ ...p, amount: e.target.value }))
+                  }
+                  placeholder="2500"
+                  className="mt-1 h-9 text-sm"
+                />
+              </div>
+              <div>
+                <Label className="text-xs">Month-Year (MM-YYYY)</Label>
+                <Input
+                  data-ocid="accounts.edit_month.input"
+                  value={editForm.monthYear}
+                  onChange={(e) =>
+                    setEditForm((p) => ({ ...p, monthYear: e.target.value }))
+                  }
+                  placeholder="03-2026"
+                  className="mt-1 h-9 font-mono text-sm"
+                />
+              </div>
+            </div>
+            <DialogFooter>
+              <Button
+                variant="outline"
+                onClick={() => setShowEditModal(false)}
+                data-ocid="accounts.edit_cancel_button"
+              >
+                Cancel
+              </Button>
+              <Button
+                onClick={handleEditSave}
+                disabled={editSaving}
+                className="bg-primary text-white"
+                data-ocid="accounts.edit_save_button"
+              >
+                {editSaving ? (
+                  <Loader2 className="w-4 h-4 animate-spin mr-2" />
+                ) : null}
+                Save Changes
+              </Button>
+            </DialogFooter>
+          </DialogContent>
+        </Dialog>
+
+        {/* Delete Confirmation Dialog */}
+        <AlertDialog
+          open={showDeleteConfirm}
+          onOpenChange={(o) => !o && setShowDeleteConfirm(false)}
+        >
+          <AlertDialogContent
+            data-ocid="accounts.delete.dialog"
+            className="no-print"
+          >
+            <AlertDialogHeader>
+              <AlertDialogTitle>Delete Last Entry?</AlertDialogTitle>
+              <AlertDialogDescription>
+                Are you sure you want to delete this entry? This action cannot
+                be undone.
+              </AlertDialogDescription>
+            </AlertDialogHeader>
+            <AlertDialogFooter>
+              <AlertDialogCancel
+                data-ocid="accounts.delete_cancel_button"
+                onClick={() => {
+                  setShowDeleteConfirm(false);
+                  setDeleteTransactionId(null);
+                }}
+              >
+                Cancel
+              </AlertDialogCancel>
+              <AlertDialogAction
+                data-ocid="accounts.delete_confirm_button"
+                onClick={handleDelete}
+                disabled={deleting}
+                className="bg-red-600 hover:bg-red-700 text-white"
+              >
+                {deleting ? (
+                  <Loader2 className="w-4 h-4 animate-spin mr-2" />
+                ) : null}
+                Delete Entry
+              </AlertDialogAction>
+            </AlertDialogFooter>
+          </AlertDialogContent>
+        </AlertDialog>
       </div>
     </>
   );

@@ -62,6 +62,7 @@ export const idlService = IDL.Service({
       [],
     ),
   'deleteFlatOwner' : IDL.Func([IDL.Nat], [], []),
+  'deleteTransaction' : IDL.Func([IDL.Nat], [], []),
   'getAllFlatOwners' : IDL.Func([], [IDL.Vec(FlatOwnerPublic)], ['query']),
   'getCallerUserProfile' : IDL.Func([], [IDL.Opt(UserProfile)], ['query']),
   'getCallerUserRole' : IDL.Func([], [UserRole], ['query']),
@@ -89,6 +90,11 @@ export const idlService = IDL.Service({
       [],
     ),
   'updateMaintenanceDebit' : IDL.Func([IDL.Text], [], []),
+  'updateTransaction' : IDL.Func(
+      [IDL.Nat, TransactionType, IDL.Text, IDL.Nat, IDL.Text],
+      [],
+      [],
+    ),
 });
 
 export const idlInitArgs = [];
@@ -148,6 +154,7 @@ export const idlFactory = ({ IDL }) => {
         [],
       ),
     'deleteFlatOwner' : IDL.Func([IDL.Nat], [], []),
+    'deleteTransaction' : IDL.Func([IDL.Nat], [], []),
     'getAllFlatOwners' : IDL.Func([], [IDL.Vec(FlatOwnerPublic)], ['query']),
     'getCallerUserProfile' : IDL.Func([], [IDL.Opt(UserProfile)], ['query']),
     'getCallerUserRole' : IDL.Func([], [UserRole], ['query']),
@@ -175,6 +182,11 @@ export const idlFactory = ({ IDL }) => {
         [],
       ),
     'updateMaintenanceDebit' : IDL.Func([IDL.Text], [], []),
+    'updateTransaction' : IDL.Func(
+        [IDL.Nat, TransactionType, IDL.Text, IDL.Nat, IDL.Text],
+        [],
+        [],
+      ),
   });
 };
 

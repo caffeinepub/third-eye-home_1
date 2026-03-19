@@ -54,6 +54,7 @@ export interface _SERVICE {
     bigint
   >,
   'deleteFlatOwner' : ActorMethod<[bigint], undefined>,
+  'deleteTransaction' : ActorMethod<[bigint], undefined>,
   'getAllFlatOwners' : ActorMethod<[], Array<FlatOwnerPublic>>,
   'getCallerUserProfile' : ActorMethod<[], [] | [UserProfile]>,
   'getCallerUserRole' : ActorMethod<[], UserRole>,
@@ -72,6 +73,10 @@ export interface _SERVICE {
     undefined
   >,
   'updateMaintenanceDebit' : ActorMethod<[string], undefined>,
+  'updateTransaction' : ActorMethod<
+    [bigint, TransactionType, string, bigint, string],
+    undefined
+  >,
 }
 export declare const idlService: IDL.ServiceClass;
 export declare const idlInitArgs: IDL.Type[];

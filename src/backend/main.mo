@@ -201,6 +201,40 @@ actor {
     addTransactionInternal(flatOwnerId, monthYear, transactionType, description, amount, "admin");
   };
 
+  // Delete a transaction by ID
+  public shared func deleteTransaction(id : Nat) : async () {
+    if (not transactions.containsKey(id)) {
+      Runtime.trap("Transaction not found");
+    };
+    transactions.remove(id);
+  };
+
+  // Update (edit) an existing transaction
+  public shared func updateTransaction(
+    id : Nat,
+    transactionType : TransactionType,
+    description : Text,
+    amount : Nat,
+    monthYear : Text
+  ) : async () {
+    switch (transactions.get(id)) {
+      case (null) { Runtime.trap("Transaction not found") };
+      case (?tx) {
+        let updated : Transaction = {
+          id = tx.id;
+          flatOwnerId = tx.flatOwnerId;
+          date = monthYear;
+          entryDate = tx.entryDate;
+          transactionType;
+          description;
+          amount;
+          createdBy = tx.createdBy;
+        };
+        transactions.add(id, updated);
+      };
+    };
+  };
+
   public query func getFlatStatement(flatOwnerId : Nat) : async [Transaction] {
     transactions.values().toArray().filter(
       func(t) { t.flatOwnerId == flatOwnerId }

@@ -134,6 +134,8 @@ export interface backendInterface {
     assignCallerUserRole(user: Principal, role: UserRole): Promise<void>;
     createFlatOwner(blockNo: string, flatNo: string, ownerName: string, phone: string, maintenanceAmount: bigint, username: string, passwordHash: string): Promise<bigint>;
     deleteFlatOwner(id: bigint): Promise<void>;
+    deleteTransaction(id: bigint): Promise<void>;
+    updateTransaction(id: bigint, transactionType: TransactionType, description: string, amount: bigint, monthYear: string): Promise<void>;
     getAllFlatOwners(): Promise<Array<FlatOwnerPublic>>;
     getCallerUserProfile(): Promise<UserProfile | null>;
     getCallerUserRole(): Promise<UserRole>;
@@ -220,6 +222,34 @@ export class Backend implements backendInterface {
             }
         } else {
             const result = await this.actor.deleteFlatOwner(arg0);
+            return result;
+        }
+    }
+    async deleteTransaction(arg0: bigint): Promise<void> {
+        if (this.processError) {
+            try {
+                const result = await this.actor.deleteTransaction(arg0);
+                return result;
+            } catch (e) {
+                this.processError(e);
+                throw new Error("unreachable");
+            }
+        } else {
+            const result = await this.actor.deleteTransaction(arg0);
+            return result;
+        }
+    }
+    async updateTransaction(arg0: bigint, arg1: TransactionType, arg2: string, arg3: bigint, arg4: string): Promise<void> {
+        if (this.processError) {
+            try {
+                const result = await this.actor.updateTransaction(arg0, to_candid_TransactionType_n1(this._uploadFile, this._downloadFile, arg1), arg2, arg3, arg4);
+                return result;
+            } catch (e) {
+                this.processError(e);
+                throw new Error("unreachable");
+            }
+        } else {
+            const result = await this.actor.updateTransaction(arg0, to_candid_TransactionType_n1(this._uploadFile, this._downloadFile, arg1), arg2, arg3, arg4);
             return result;
         }
     }
