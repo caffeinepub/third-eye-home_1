@@ -6,10 +6,13 @@ import Order "mo:core/Order";
 import Nat "mo:core/Nat";
 import Runtime "mo:core/Runtime";
 import Principal "mo:core/Principal";
+import Migration "migration";
 
 import MixinAuthorization "authorization/MixinAuthorization";
 import AccessControl "authorization/access-control";
 
+// Apply data migration logic from migration.mo when upgrading
+(with migration = Migration.run)
 actor {
   // ── Kept for stable-variable compatibility with previous version ──
   let accessControlState = AccessControl.initState();
@@ -69,15 +72,30 @@ actor {
     createdBy : Text;
   };
 
+  public type ExpenseVoucher = {
+    id : Nat;
+    voucherNo : Text;
+    date : Text;
+    entryDate : Time.Time;
+    category : Text;
+    description : Text;
+    amount : Nat;
+    payee : Text;
+    remarks : Text;
+  };
+
   // ── In-memory working Maps ──
   let flatOwners = Map.empty<Nat, FlatOwner>();
   let transactions = Map.empty<Nat, Transaction>();
+  let expenseVouchers = Map.empty<Nat, ExpenseVoucher>();
 
   // ── Stable storage: persists across upgrades ──
   stable var _flatOwnersStable : [(Nat, FlatOwner)] = [];
   stable var _transactionsStable : [(Nat, Transaction)] = [];
+  stable var _expenseVouchersStable : [(Nat, ExpenseVoucher)] = [];
   stable var nextFlatOwnerId : Nat = 1;
   stable var nextTransactionId : Nat = 1;
+  stable var nextExpenseVoucherId : Nat = 1;
 
   // Restore data from stable storage after upgrade
   system func postupgrade() {
@@ -90,21 +108,27 @@ actor {
         transactions.add(k, v);
       };
     };
+    for ((k, v) in _expenseVouchersStable.vals()) {
+      expenseVouchers.add(k, v);
+    };
     // Sync stable after cleanup so orphans are permanently removed
     _flatOwnersStable := flatOwners.entries().toArray();
     _transactionsStable := transactions.entries().toArray();
+    _expenseVouchersStable := expenseVouchers.entries().toArray();
   };
 
   // Save data to stable storage before upgrade
   system func preupgrade() {
     _flatOwnersStable := flatOwners.entries().toArray();
     _transactionsStable := transactions.entries().toArray();
+    _expenseVouchersStable := expenseVouchers.entries().toArray();
   };
 
   // Sync helper: keeps stable arrays always up to date
   func syncStable() {
     _flatOwnersStable := flatOwners.entries().toArray();
     _transactionsStable := transactions.entries().toArray();
+    _expenseVouchersStable := expenseVouchers.entries().toArray();
   };
 
   module Transaction {
@@ -113,6 +137,12 @@ actor {
     };
     public func compareByEntryDateAsc(t1 : Transaction, t2 : Transaction) : Order.Order {
       Int.compare(t1.entryDate, t2.entryDate);
+    };
+  };
+
+  module ExpenseVoucher {
+    public func compareByEntryDateDesc(v1 : ExpenseVoucher, v2 : ExpenseVoucher) : Order.Order {
+      Int.compare(v2.entryDate, v1.entryDate);
     };
   };
 
@@ -129,8 +159,77 @@ actor {
     };
   };
 
+  // Helper to get flatOwnerId from user profile
+  func getFlatOwnerIdForCaller(caller : Principal) : ?Nat {
+    switch (userProfiles.get(caller)) {
+      case (null) { null };
+      case (?profile) { profile.flatOwnerId };
+    };
+  };
+
+  // ╔══════════════════════════════╗
+  // ║    Expense Voucher Logic     ║
+  // ╚══════════════════════════════╝
+
+  // Add new expense voucher
+  public shared ({ caller }) func addExpenseVoucher(
+    voucherNo : Text,
+    date : Text,
+    category : Text,
+    description : Text,
+    amount : Nat,
+    payee : Text,
+    remarks : Text
+  ) : async Nat {
+    if (not AccessControl.hasPermission(accessControlState, caller, #admin)) {
+      Runtime.trap("Unauthorized: Only admins can add vouchers");
+    };
+    let newId = nextExpenseVoucherId;
+    let voucher : ExpenseVoucher = {
+      id = newId;
+      voucherNo;
+      date;
+      entryDate = Time.now();
+      category;
+      description;
+      amount;
+      payee;
+      remarks;
+    };
+    expenseVouchers.add(newId, voucher);
+    nextExpenseVoucherId += 1;
+    syncStable();
+    newId;
+  };
+
+  // Get all expense vouchers (sorted by most recent entry date first)
+  public query ({ caller }) func getAllExpenseVouchers() : async [ExpenseVoucher] {
+    if (not AccessControl.hasPermission(accessControlState, caller, #user)) {
+      Runtime.trap("Unauthorized: Only users can view expense vouchers");
+    };
+    expenseVouchers.values().toArray().sort(
+      ExpenseVoucher.compareByEntryDateDesc
+    );
+  };
+
+  // Delete an expense voucher by ID
+  public shared ({ caller }) func deleteExpenseVoucher(id : Nat) : async () {
+    if (not AccessControl.hasPermission(accessControlState, caller, #admin)) {
+      Runtime.trap("Unauthorized: Only admins can delete vouchers");
+    };
+    if (not expenseVouchers.containsKey(id)) {
+      Runtime.trap("Expense voucher not found");
+    };
+    expenseVouchers.remove(id);
+    syncStable();
+  };
+
+  // ╔════════════════════════════════════╗
+  // ║    Society Management Logic       ║
+  // ╚════════════════════════════════════╝
+
   // Admin functions (access gated by frontend credential check)
-  public shared func createFlatOwner(
+  public shared ({ caller }) func createFlatOwner(
     blockNo : Text,
     flatNo : Text,
     ownerName : Text,
@@ -139,6 +238,9 @@ actor {
     username : Text,
     passwordHash : Text
   ) : async Nat {
+    if (not AccessControl.hasPermission(accessControlState, caller, #admin)) {
+      Runtime.trap("Unauthorized: Only admins can create flat owners");
+    };
     let id = nextFlatOwnerId;
     let owner : FlatOwner = {
       id;
@@ -157,7 +259,7 @@ actor {
     id;
   };
 
-  public shared func updateFlatOwner(
+  public shared ({ caller }) func updateFlatOwner(
     id : Nat,
     blockNo : Text,
     flatNo : Text,
@@ -165,6 +267,9 @@ actor {
     phone : Text,
     maintenanceAmount : Nat
   ) : async () {
+    if (not AccessControl.hasPermission(accessControlState, caller, #admin)) {
+      Runtime.trap("Unauthorized: Only admins can update flat owners");
+    };
     switch (flatOwners.get(id)) {
       case (null) { Runtime.trap("Flat owner not found") };
       case (?owner) {
@@ -186,7 +291,10 @@ actor {
   };
 
   // Delete flat owner AND all their transactions (cascade delete)
-  public shared func deleteFlatOwner(id : Nat) : async () {
+  public shared ({ caller }) func deleteFlatOwner(id : Nat) : async () {
+    if (not AccessControl.hasPermission(accessControlState, caller, #admin)) {
+      Runtime.trap("Unauthorized: Only admins can delete flat owners");
+    };
     if (not flatOwners.containsKey(id)) {
       Runtime.trap("Flat owner not found");
     };
@@ -201,11 +309,18 @@ actor {
     syncStable();
   };
 
-  public query func getAllFlatOwners() : async [FlatOwnerPublic] {
+  public query ({ caller }) func getAllFlatOwners() : async [FlatOwnerPublic] {
+    if (not AccessControl.hasPermission(accessControlState, caller, #user)) {
+      Runtime.trap("Unauthorized: Only users can view flat owners");
+    };
     flatOwners.values().toArray().map(func(owner) { toPublicFlatOwner(owner) });
   };
 
-  public shared func updateMaintenanceDebit(monthYear : Text) : async () {
+  // Update previously added maintenance amount as debit for a specific month/year
+  public shared ({ caller }) func updateMaintenanceDebit(monthYear : Text) : async () {
+    if (not AccessControl.hasPermission(accessControlState, caller, #admin)) {
+      Runtime.trap("Unauthorized: Only admins can update maintenance");
+    };
     flatOwners.values().forEach(
       func(owner) {
         if (not transactionExists(owner.id, monthYear, #Debit)) {
@@ -216,19 +331,26 @@ actor {
     syncStable();
   };
 
-  public shared func addManualTransaction(
+  // Add manual transaction (credit or additional debit)
+  public shared ({ caller }) func addManualTransaction(
     flatOwnerId : Nat,
     transactionType : TransactionType,
     description : Text,
     amount : Nat,
     monthYear : Text
   ) : async () {
+    if (not AccessControl.hasPermission(accessControlState, caller, #admin)) {
+      Runtime.trap("Unauthorized: Only admins can add manual transactions");
+    };
     addTransactionInternal(flatOwnerId, monthYear, transactionType, description, amount, "admin");
     syncStable();
   };
 
   // Delete a transaction by ID
-  public shared func deleteTransaction(id : Nat) : async () {
+  public shared ({ caller }) func deleteTransaction(id : Nat) : async () {
+    if (not AccessControl.hasPermission(accessControlState, caller, #admin)) {
+      Runtime.trap("Unauthorized: Only admins can delete transactions");
+    };
     if (not transactions.containsKey(id)) {
       Runtime.trap("Transaction not found");
     };
@@ -237,13 +359,16 @@ actor {
   };
 
   // Update (edit) an existing transaction
-  public shared func updateTransaction(
+  public shared ({ caller }) func updateTransaction(
     id : Nat,
     transactionType : TransactionType,
     description : Text,
     amount : Nat,
     monthYear : Text
   ) : async () {
+    if (not AccessControl.hasPermission(accessControlState, caller, #admin)) {
+      Runtime.trap("Unauthorized: Only admins can update transactions");
+    };
     switch (transactions.get(id)) {
       case (null) { Runtime.trap("Transaction not found") };
       case (?tx) {
@@ -264,7 +389,10 @@ actor {
   };
 
   // Reset all financial data (transactions only) -- member profiles and maintenance amounts are preserved
-  public shared func resetFinancialData() : async () {
+  public shared ({ caller }) func resetFinancialData() : async () {
+    if (not AccessControl.hasPermission(accessControlState, caller, #admin)) {
+      Runtime.trap("Unauthorized: Only admins can reset financial data");
+    };
     let allTxIds = transactions.keys().toArray();
     for (id in allTxIds.vals()) {
       transactions.remove(id);
@@ -273,18 +401,35 @@ actor {
     syncStable();
   };
 
-  public query func getFlatStatement(flatOwnerId : Nat) : async [Transaction] {
+  public query ({ caller }) func getFlatStatement(flatOwnerId : Nat) : async [Transaction] {
+    // Allow if admin OR if caller owns this flat
+    let callerFlatId = getFlatOwnerIdForCaller(caller);
+    let isOwner = switch (callerFlatId) {
+      case (?id) { id == flatOwnerId };
+      case (null) { false };
+    };
+    
+    if (not (AccessControl.isAdmin(accessControlState, caller) or isOwner)) {
+      Runtime.trap("Unauthorized: Can only view your own statement");
+    };
+    
     transactions.values().toArray().filter(
       func(t) { t.flatOwnerId == flatOwnerId }
     ).sort(Transaction.compareByEntryDateDesc);
   };
 
   // Returns ALL transactions across all owners (for society statement)
-  public query func getAllTransactions() : async [Transaction] {
+  public query ({ caller }) func getAllTransactions() : async [Transaction] {
+    if (not AccessControl.hasPermission(accessControlState, caller, #user)) {
+      Runtime.trap("Unauthorized: Only users can view all transactions");
+    };
     transactions.values().toArray().sort(Transaction.compareByEntryDateAsc);
   };
 
-  public query func getSocietyOverview() : async SocietyOverview {
+  public query ({ caller }) func getSocietyOverview() : async SocietyOverview {
+    if (not AccessControl.hasPermission(accessControlState, caller, #user)) {
+      Runtime.trap("Unauthorized: Only users can view society overview");
+    };
     var totalDebits : Nat = 0;
     var totalCollected : Nat = 0;
     // Only count transactions for owners that currently exist (skip orphans)
@@ -295,7 +440,7 @@ actor {
             case (#Debit) { totalDebits += transaction.amount };
             case (#Credit) { totalCollected += transaction.amount };
           };
-        };
+        }
       }
     );
     let totalPendingDues : Nat = if (totalDebits > totalCollected) { totalDebits - totalCollected } else { 0 };
@@ -305,6 +450,10 @@ actor {
       totalCollected;
     };
   };
+
+  // ╔════════════════════════╗
+  // ║      Owner Login      ║
+  // ╚════════════════════════╝
 
   // Owner login (public, no principal required)
   public query func loginOwner(username : Text, password : Text) : async ?FlatOwnerPublic {
@@ -318,13 +467,35 @@ actor {
     };
   };
 
-  public query func getOwnerStatement(ownerId : Nat) : async [Transaction] {
+  public query ({ caller }) func getOwnerStatement(ownerId : Nat) : async [Transaction] {
+    // Allow if admin OR if caller owns this flat
+    let callerFlatId = getFlatOwnerIdForCaller(caller);
+    let isOwner = switch (callerFlatId) {
+      case (?id) { id == ownerId };
+      case (null) { false };
+    };
+    
+    if (not (AccessControl.isAdmin(accessControlState, caller) or isOwner)) {
+      Runtime.trap("Unauthorized: Can only view your own statement");
+    };
+    
     transactions.values().toArray().filter(
       func(t) { t.flatOwnerId == ownerId }
     ).sort(Transaction.compareByEntryDateDesc);
   };
 
-  public query func getOwnerBalance(ownerId : Nat) : async Nat {
+  public query ({ caller }) func getOwnerBalance(ownerId : Nat) : async Nat {
+    // Allow if admin OR if caller owns this flat
+    let callerFlatId = getFlatOwnerIdForCaller(caller);
+    let isOwner = switch (callerFlatId) {
+      case (?id) { id == ownerId };
+      case (null) { false };
+    };
+    
+    if (not (AccessControl.isAdmin(accessControlState, caller) or isOwner)) {
+      Runtime.trap("Unauthorized: Can only view your own balance");
+    };
+    
     var debits : Nat = 0;
     var credits : Nat = 0;
     transactions.values().forEach(
@@ -334,13 +505,16 @@ actor {
             case (#Debit) { debits += transaction.amount };
             case (#Credit) { credits += transaction.amount };
           };
-        };
+        }
       }
     );
     if (debits > credits) { debits - credits } else { 0 };
   };
 
-  // Helper functions
+  // ╔══════════════════════════╗
+  // ║    Helper functions     ║
+  // ╚══════════════════════════╝
+
   func transactionExists(flatOwnerId : Nat, monthYear : Text, transactionType : TransactionType) : Bool {
     transactions.values().toArray().any(
       func(t) {

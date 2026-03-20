@@ -18,6 +18,17 @@ export const UserRole = IDL.Variant({
   'guest' : IDL.Null,
 });
 export const Time = IDL.Int;
+export const ExpenseVoucher = IDL.Record({
+  'id' : IDL.Nat,
+  'entryDate' : Time,
+  'date' : IDL.Text,
+  'description' : IDL.Text,
+  'category' : IDL.Text,
+  'payee' : IDL.Text,
+  'voucherNo' : IDL.Text,
+  'amount' : IDL.Nat,
+  'remarks' : IDL.Text,
+});
 export const FlatOwnerPublic = IDL.Record({
   'id' : IDL.Nat,
   'username' : IDL.Text,
@@ -27,10 +38,6 @@ export const FlatOwnerPublic = IDL.Record({
   'createdAt' : Time,
   'phone' : IDL.Text,
   'maintenanceAmount' : IDL.Nat,
-});
-export const UserProfile = IDL.Record({
-  'name' : IDL.Text,
-  'flatOwnerId' : IDL.Opt(IDL.Nat),
 });
 export const Transaction = IDL.Record({
   'id' : IDL.Nat,
@@ -50,6 +57,11 @@ export const SocietyOverview = IDL.Record({
 
 export const idlService = IDL.Service({
   '_initializeAccessControlWithSecret' : IDL.Func([IDL.Text], [], []),
+  'addExpenseVoucher' : IDL.Func(
+      [IDL.Text, IDL.Text, IDL.Text, IDL.Text, IDL.Nat, IDL.Text, IDL.Text],
+      [IDL.Nat],
+      [],
+    ),
   'addManualTransaction' : IDL.Func(
       [IDL.Nat, TransactionType, IDL.Text, IDL.Nat, IDL.Text],
       [],
@@ -61,31 +73,24 @@ export const idlService = IDL.Service({
       [IDL.Nat],
       [],
     ),
+  'deleteExpenseVoucher' : IDL.Func([IDL.Nat], [], []),
   'deleteFlatOwner' : IDL.Func([IDL.Nat], [], []),
   'deleteTransaction' : IDL.Func([IDL.Nat], [], []),
+  'getAllExpenseVouchers' : IDL.Func([], [IDL.Vec(ExpenseVoucher)], ['query']),
   'getAllFlatOwners' : IDL.Func([], [IDL.Vec(FlatOwnerPublic)], ['query']),
   'getAllTransactions' : IDL.Func([], [IDL.Vec(Transaction)], ['query']),
-  'getCallerUserProfile' : IDL.Func([], [IDL.Opt(UserProfile)], ['query']),
   'getCallerUserRole' : IDL.Func([], [UserRole], ['query']),
   'getFlatStatement' : IDL.Func([IDL.Nat], [IDL.Vec(Transaction)], ['query']),
-  'getMyBalance' : IDL.Func([], [IDL.Nat], ['query']),
-  'getMyProfile' : IDL.Func([], [FlatOwnerPublic], ['query']),
-  'getMyStatement' : IDL.Func([], [IDL.Vec(Transaction)], ['query']),
+  'getOwnerBalance' : IDL.Func([IDL.Nat], [IDL.Nat], ['query']),
+  'getOwnerStatement' : IDL.Func([IDL.Nat], [IDL.Vec(Transaction)], ['query']),
   'getSocietyOverview' : IDL.Func([], [SocietyOverview], ['query']),
-  'getUserProfile' : IDL.Func(
-      [IDL.Principal],
-      [IDL.Opt(UserProfile)],
-      ['query'],
-    ),
   'isCallerAdmin' : IDL.Func([], [IDL.Bool], ['query']),
-  'linkOwnerToPrincipal' : IDL.Func([IDL.Nat, IDL.Principal], [], []),
   'loginOwner' : IDL.Func(
       [IDL.Text, IDL.Text],
       [IDL.Opt(FlatOwnerPublic)],
       ['query'],
     ),
   'resetFinancialData' : IDL.Func([], [], []),
-  'saveCallerUserProfile' : IDL.Func([UserProfile], [], []),
   'updateFlatOwner' : IDL.Func(
       [IDL.Nat, IDL.Text, IDL.Text, IDL.Text, IDL.Text, IDL.Nat],
       [],
@@ -112,6 +117,17 @@ export const idlFactory = ({ IDL }) => {
     'guest' : IDL.Null,
   });
   const Time = IDL.Int;
+  const ExpenseVoucher = IDL.Record({
+    'id' : IDL.Nat,
+    'entryDate' : Time,
+    'date' : IDL.Text,
+    'description' : IDL.Text,
+    'category' : IDL.Text,
+    'payee' : IDL.Text,
+    'voucherNo' : IDL.Text,
+    'amount' : IDL.Nat,
+    'remarks' : IDL.Text,
+  });
   const FlatOwnerPublic = IDL.Record({
     'id' : IDL.Nat,
     'username' : IDL.Text,
@@ -121,10 +137,6 @@ export const idlFactory = ({ IDL }) => {
     'createdAt' : Time,
     'phone' : IDL.Text,
     'maintenanceAmount' : IDL.Nat,
-  });
-  const UserProfile = IDL.Record({
-    'name' : IDL.Text,
-    'flatOwnerId' : IDL.Opt(IDL.Nat),
   });
   const Transaction = IDL.Record({
     'id' : IDL.Nat,
@@ -144,6 +156,11 @@ export const idlFactory = ({ IDL }) => {
   
   return IDL.Service({
     '_initializeAccessControlWithSecret' : IDL.Func([IDL.Text], [], []),
+    'addExpenseVoucher' : IDL.Func(
+        [IDL.Text, IDL.Text, IDL.Text, IDL.Text, IDL.Nat, IDL.Text, IDL.Text],
+        [IDL.Nat],
+        [],
+      ),
     'addManualTransaction' : IDL.Func(
         [IDL.Nat, TransactionType, IDL.Text, IDL.Nat, IDL.Text],
         [],
@@ -155,31 +172,32 @@ export const idlFactory = ({ IDL }) => {
         [IDL.Nat],
         [],
       ),
+    'deleteExpenseVoucher' : IDL.Func([IDL.Nat], [], []),
     'deleteFlatOwner' : IDL.Func([IDL.Nat], [], []),
     'deleteTransaction' : IDL.Func([IDL.Nat], [], []),
-    'getAllFlatOwners' : IDL.Func([], [IDL.Vec(FlatOwnerPublic)], ['query']),
-    'getAllTransactions' : IDL.Func([], [IDL.Vec(Transaction)], ['query']),
-    'getCallerUserProfile' : IDL.Func([], [IDL.Opt(UserProfile)], ['query']),
-    'getCallerUserRole' : IDL.Func([], [UserRole], ['query']),
-    'getFlatStatement' : IDL.Func([IDL.Nat], [IDL.Vec(Transaction)], ['query']),
-    'getMyBalance' : IDL.Func([], [IDL.Nat], ['query']),
-    'getMyProfile' : IDL.Func([], [FlatOwnerPublic], ['query']),
-    'getMyStatement' : IDL.Func([], [IDL.Vec(Transaction)], ['query']),
-    'getSocietyOverview' : IDL.Func([], [SocietyOverview], ['query']),
-    'getUserProfile' : IDL.Func(
-        [IDL.Principal],
-        [IDL.Opt(UserProfile)],
+    'getAllExpenseVouchers' : IDL.Func(
+        [],
+        [IDL.Vec(ExpenseVoucher)],
         ['query'],
       ),
+    'getAllFlatOwners' : IDL.Func([], [IDL.Vec(FlatOwnerPublic)], ['query']),
+    'getAllTransactions' : IDL.Func([], [IDL.Vec(Transaction)], ['query']),
+    'getCallerUserRole' : IDL.Func([], [UserRole], ['query']),
+    'getFlatStatement' : IDL.Func([IDL.Nat], [IDL.Vec(Transaction)], ['query']),
+    'getOwnerBalance' : IDL.Func([IDL.Nat], [IDL.Nat], ['query']),
+    'getOwnerStatement' : IDL.Func(
+        [IDL.Nat],
+        [IDL.Vec(Transaction)],
+        ['query'],
+      ),
+    'getSocietyOverview' : IDL.Func([], [SocietyOverview], ['query']),
     'isCallerAdmin' : IDL.Func([], [IDL.Bool], ['query']),
-    'linkOwnerToPrincipal' : IDL.Func([IDL.Nat, IDL.Principal], [], []),
     'loginOwner' : IDL.Func(
         [IDL.Text, IDL.Text],
         [IDL.Opt(FlatOwnerPublic)],
         ['query'],
       ),
     'resetFinancialData' : IDL.Func([], [], []),
-    'saveCallerUserProfile' : IDL.Func([UserProfile], [], []),
     'updateFlatOwner' : IDL.Func(
         [IDL.Nat, IDL.Text, IDL.Text, IDL.Text, IDL.Text, IDL.Nat],
         [],

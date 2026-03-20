@@ -10,6 +10,17 @@ import type { ActorMethod } from '@icp-sdk/core/agent';
 import type { IDL } from '@icp-sdk/core/candid';
 import type { Principal } from '@icp-sdk/core/principal';
 
+export interface ExpenseVoucher {
+  'id' : bigint,
+  'entryDate' : Time,
+  'date' : string,
+  'description' : string,
+  'category' : string,
+  'payee' : string,
+  'voucherNo' : string,
+  'amount' : bigint,
+  'remarks' : string,
+}
 export interface FlatOwnerPublic {
   'id' : bigint,
   'username' : string,
@@ -38,12 +49,15 @@ export interface Transaction {
 }
 export type TransactionType = { 'Debit' : null } |
   { 'Credit' : null };
-export interface UserProfile { 'name' : string, 'flatOwnerId' : [] | [bigint] }
 export type UserRole = { 'admin' : null } |
   { 'user' : null } |
   { 'guest' : null };
 export interface _SERVICE {
   '_initializeAccessControlWithSecret' : ActorMethod<[string], undefined>,
+  'addExpenseVoucher' : ActorMethod<
+    [string, string, string, string, bigint, string, string],
+    bigint
+  >,
   'addManualTransaction' : ActorMethod<
     [bigint, TransactionType, string, bigint, string],
     undefined
@@ -53,23 +67,20 @@ export interface _SERVICE {
     [string, string, string, string, bigint, string, string],
     bigint
   >,
+  'deleteExpenseVoucher' : ActorMethod<[bigint], undefined>,
   'deleteFlatOwner' : ActorMethod<[bigint], undefined>,
   'deleteTransaction' : ActorMethod<[bigint], undefined>,
+  'getAllExpenseVouchers' : ActorMethod<[], Array<ExpenseVoucher>>,
   'getAllFlatOwners' : ActorMethod<[], Array<FlatOwnerPublic>>,
   'getAllTransactions' : ActorMethod<[], Array<Transaction>>,
-  'getCallerUserProfile' : ActorMethod<[], [] | [UserProfile]>,
   'getCallerUserRole' : ActorMethod<[], UserRole>,
   'getFlatStatement' : ActorMethod<[bigint], Array<Transaction>>,
-  'getMyBalance' : ActorMethod<[], bigint>,
-  'getMyProfile' : ActorMethod<[], FlatOwnerPublic>,
-  'getMyStatement' : ActorMethod<[], Array<Transaction>>,
+  'getOwnerBalance' : ActorMethod<[bigint], bigint>,
+  'getOwnerStatement' : ActorMethod<[bigint], Array<Transaction>>,
   'getSocietyOverview' : ActorMethod<[], SocietyOverview>,
-  'getUserProfile' : ActorMethod<[Principal], [] | [UserProfile]>,
   'isCallerAdmin' : ActorMethod<[], boolean>,
-  'linkOwnerToPrincipal' : ActorMethod<[bigint, Principal], undefined>,
   'loginOwner' : ActorMethod<[string, string], [] | [FlatOwnerPublic]>,
   'resetFinancialData' : ActorMethod<[], undefined>,
-  'saveCallerUserProfile' : ActorMethod<[UserProfile], undefined>,
   'updateFlatOwner' : ActorMethod<
     [bigint, string, string, string, string, bigint],
     undefined

@@ -32,11 +32,13 @@ import {
   Pencil,
   Plus,
   Printer,
+  Receipt,
   Trash2,
 } from "lucide-react";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { toast } from "sonner";
 import type {
+  ExpenseVoucher,
   FlatOwnerPublic as FlatOwner,
   Transaction,
 } from "../../backend.d";
@@ -101,9 +103,9 @@ function applyDateFilter(
 
 export default function AccountsPage() {
   const { actor, isFetching } = useActor();
-  const [activeTab, setActiveTab] = useState<"individual" | "society">(
-    "individual",
-  );
+  const [activeTab, setActiveTab] = useState<
+    "individual" | "society" | "expense"
+  >("individual");
 
   // Individual account state
   const [owners, setOwners] = useState<FlatOwner[]>([]);
@@ -146,6 +148,26 @@ export default function AccountsPage() {
   const [allTransactions, setAllTransactions] = useState<Transaction[]>([]);
   const [loadingSociety, setLoadingSociety] = useState(false);
   const [societyLoaded, setSocietyLoaded] = useState(false);
+
+  // Expense voucher state
+  const [expenseVouchers, setExpenseVouchers] = useState<ExpenseVoucher[]>([]);
+  const [loadingExpense, setLoadingExpense] = useState(false);
+  const [showExpenseModal, setShowExpenseModal] = useState(false);
+  const [expenseSaving, setExpenseSaving] = useState(false);
+  const [expenseForm, setExpenseForm] = useState({
+    date: new Date().toISOString().split("T")[0],
+    category: "",
+    description: "",
+    amount: "",
+    payee: "",
+    remarks: "",
+  });
+  const [showExpenseDeleteConfirm, setShowExpenseDeleteConfirm] =
+    useState(false);
+  const [deleteExpenseId, setDeleteExpenseId] = useState<bigint | null>(null);
+  const [deletingExpense, setDeletingExpense] = useState(false);
+  const [printVoucher, setPrintVoucher] = useState<ExpenseVoucher | null>(null);
+  const expensePrintRef = useRef<HTMLDivElement>(null);
 
   // Date filter state — Individual tab filter
   const [indivFilter, setIndivFilter] = useState<FilterPreset>("all");
@@ -394,6 +416,8 @@ export default function AccountsPage() {
           #society-statement, #society-statement * { visibility: visible !important; }
           #tally-statement { position: fixed; top: 0; left: 0; width: 100%; }
           #society-statement { position: fixed; top: 0; left: 0; width: 100%; }
+          #expense-voucher-print { position: absolute; left: 0; top: 0; width: 100%; }
+          #expense-voucher-print, #expense-voucher-print * { visibility: visible !important; }
           .no-print { display: none !important; }
         }
       `}</style>
@@ -424,6 +448,34 @@ export default function AccountsPage() {
             }`}
           >
             Society Statement
+          </button>
+          <button
+            type="button"
+            data-ocid="accounts.expense.tab"
+            onClick={() => {
+              setActiveTab("expense");
+              if (actor && !isFetching) {
+                setLoadingExpense(true);
+                actor
+                  .getAllExpenseVouchers()
+                  .then((v) =>
+                    setExpenseVouchers(
+                      [...v].sort(
+                        (a, b) => Number(b.entryDate) - Number(a.entryDate),
+                      ),
+                    ),
+                  )
+                  .catch(() => toast.error("Failed to load expense vouchers"))
+                  .finally(() => setLoadingExpense(false));
+              }
+            }}
+            className={`px-5 py-2 rounded-full text-sm font-semibold transition-colors ${
+              activeTab === "expense"
+                ? "bg-primary text-white shadow"
+                : "border border-border bg-card text-foreground hover:bg-muted"
+            }`}
+          >
+            Expense Entry
           </button>
         </div>
 
@@ -1367,9 +1419,14 @@ export default function AccountsPage() {
                 <Label className="text-xs">Transaction Type</Label>
                 <Select
                   value={form.type}
-                  onValueChange={(v) =>
-                    setForm((p) => ({ ...p, type: v as TransactionType }))
-                  }
+                  onValueChange={(v) => {
+                    setForm((p) => ({
+                      ...p,
+                      type: v as TransactionType,
+                      description: "",
+                    }));
+                    setSelectedCategory("");
+                  }}
                 >
                   <SelectTrigger
                     data-ocid="accounts.type.select"
@@ -1614,6 +1671,610 @@ export default function AccountsPage() {
                   <Loader2 className="w-4 h-4 animate-spin mr-2" />
                 ) : null}
                 Delete Entry
+              </AlertDialogAction>
+            </AlertDialogFooter>
+          </AlertDialogContent>
+        </AlertDialog>
+
+        {/* ======================== EXPENSE ENTRY TAB ======================== */}
+        {activeTab === "expense" && (
+          <div className="space-y-4 no-print">
+            {/* Header */}
+            <div className="bg-card rounded-xl border border-border shadow-card p-5 flex items-center justify-between flex-wrap gap-3">
+              <div>
+                <h2 className="text-lg font-bold text-foreground flex items-center gap-2">
+                  <Receipt className="w-5 h-5 text-primary" />
+                  Expense Vouchers
+                </h2>
+                <p className="text-xs text-muted-foreground mt-0.5">
+                  Record society expenses — salary, repairs, utilities &amp;
+                  more
+                </p>
+              </div>
+              <Button
+                data-ocid="expense.open_modal_button"
+                onClick={() => {
+                  setExpenseForm({
+                    date: new Date().toISOString().split("T")[0],
+                    category: "",
+                    description: "",
+                    amount: "",
+                    payee: "",
+                    remarks: "",
+                  });
+                  setShowExpenseModal(true);
+                }}
+                className="flex items-center gap-2"
+              >
+                <Plus className="w-4 h-4" />
+                New Expense Entry
+              </Button>
+            </div>
+
+            {/* Voucher table */}
+            <div className="bg-card rounded-xl border border-border shadow-card overflow-hidden">
+              {loadingExpense ? (
+                <div
+                  data-ocid="expense.loading_state"
+                  className="flex items-center justify-center p-10 gap-2 text-muted-foreground"
+                >
+                  <Loader2 className="w-5 h-5 animate-spin" />
+                  Loading vouchers…
+                </div>
+              ) : expenseVouchers.length === 0 ? (
+                <div
+                  data-ocid="expense.empty_state"
+                  className="flex flex-col items-center justify-center p-12 text-center"
+                >
+                  <Receipt className="w-12 h-12 text-muted-foreground/30 mb-3" />
+                  <p className="text-muted-foreground font-medium">
+                    No expense vouchers yet
+                  </p>
+                  <p className="text-xs text-muted-foreground/70 mt-1">
+                    Click &quot;New Expense Entry&quot; to create the first
+                    voucher
+                  </p>
+                </div>
+              ) : (
+                <div className="overflow-x-auto">
+                  <table className="w-full text-sm">
+                    <thead>
+                      <tr className="border-b border-border bg-muted/40">
+                        <th className="text-left px-4 py-3 font-semibold text-muted-foreground">
+                          Voucher No
+                        </th>
+                        <th className="text-left px-4 py-3 font-semibold text-muted-foreground">
+                          Date
+                        </th>
+                        <th className="text-left px-4 py-3 font-semibold text-muted-foreground">
+                          Category
+                        </th>
+                        <th className="text-left px-4 py-3 font-semibold text-muted-foreground">
+                          Description
+                        </th>
+                        <th className="text-left px-4 py-3 font-semibold text-muted-foreground">
+                          Payee
+                        </th>
+                        <th className="text-right px-4 py-3 font-semibold text-muted-foreground">
+                          Amount
+                        </th>
+                        <th className="text-center px-4 py-3 font-semibold text-muted-foreground">
+                          Actions
+                        </th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {expenseVouchers.map((v, idx) => (
+                        <tr
+                          key={String(v.id)}
+                          data-ocid={`expense.item.${idx + 1}`}
+                          className="border-b border-border/50 hover:bg-muted/20 transition-colors"
+                        >
+                          <td className="px-4 py-3 font-mono text-xs text-primary font-semibold">
+                            {v.voucherNo}
+                          </td>
+                          <td className="px-4 py-3 text-muted-foreground">
+                            {v.date}
+                          </td>
+                          <td className="px-4 py-3">
+                            <span className="inline-block bg-amber-100 text-amber-800 dark:bg-amber-900/30 dark:text-amber-400 text-xs px-2 py-0.5 rounded-full font-medium">
+                              {v.category}
+                            </span>
+                          </td>
+                          <td className="px-4 py-3 text-foreground">
+                            {v.description}
+                          </td>
+                          <td className="px-4 py-3 text-muted-foreground">
+                            {v.payee || "—"}
+                          </td>
+                          <td className="px-4 py-3 text-right font-semibold text-red-600 dark:text-red-400">
+                            {formatINR(Number(v.amount))}
+                          </td>
+                          <td className="px-4 py-3">
+                            <div className="flex items-center justify-center gap-2">
+                              <button
+                                type="button"
+                                data-ocid={`expense.print.${idx + 1}`}
+                                title="Print Voucher"
+                                className="p-1.5 rounded-lg hover:bg-blue-100 dark:hover:bg-blue-900/30 text-blue-600 transition-colors"
+                                onClick={() => {
+                                  setPrintVoucher(v);
+                                  setTimeout(() => window.print(), 100);
+                                }}
+                              >
+                                <Printer className="w-4 h-4" />
+                              </button>
+                              <button
+                                type="button"
+                                data-ocid={`expense.delete_button.${idx + 1}`}
+                                title="Delete Voucher"
+                                className="p-1.5 rounded-lg hover:bg-red-100 dark:hover:bg-red-900/30 text-red-600 transition-colors"
+                                onClick={() => {
+                                  setDeleteExpenseId(v.id);
+                                  setShowExpenseDeleteConfirm(true);
+                                }}
+                              >
+                                <Trash2 className="w-4 h-4" />
+                              </button>
+                            </div>
+                          </td>
+                        </tr>
+                      ))}
+                    </tbody>
+                    <tfoot>
+                      <tr className="bg-muted/40 border-t-2 border-border font-bold">
+                        <td colSpan={5} className="px-4 py-3 text-foreground">
+                          Total Expenses
+                        </td>
+                        <td className="px-4 py-3 text-right text-red-600 dark:text-red-400">
+                          {formatINR(
+                            expenseVouchers.reduce(
+                              (s, v) => s + Number(v.amount),
+                              0,
+                            ),
+                          )}
+                        </td>
+                        <td />
+                      </tr>
+                    </tfoot>
+                  </table>
+                </div>
+              )}
+            </div>
+          </div>
+        )}
+
+        {/* Hidden print div for expense voucher */}
+        <div
+          id="expense-voucher-print"
+          ref={expensePrintRef}
+          style={{ display: "none" }}
+        >
+          {printVoucher && (
+            <div
+              style={{
+                fontFamily: "Arial, sans-serif",
+                padding: "40px",
+                maxWidth: "700px",
+                margin: "0 auto",
+                border: "2px solid #000",
+              }}
+            >
+              {/* Header */}
+              <div
+                style={{
+                  textAlign: "center",
+                  borderBottom: "2px solid #000",
+                  paddingBottom: "12px",
+                  marginBottom: "16px",
+                }}
+              >
+                <div
+                  style={{
+                    fontSize: "22px",
+                    fontWeight: "bold",
+                    letterSpacing: "1px",
+                  }}
+                >
+                  THIRD EYE HOME SOCIETY
+                </div>
+                <div
+                  style={{ fontSize: "14px", color: "#444", marginTop: "4px" }}
+                >
+                  Residential Society Management
+                </div>
+                <div
+                  style={{
+                    fontSize: "18px",
+                    fontWeight: "bold",
+                    marginTop: "8px",
+                    textDecoration: "underline",
+                    letterSpacing: "2px",
+                  }}
+                >
+                  EXPENSE VOUCHER
+                </div>
+              </div>
+
+              {/* Voucher meta */}
+              <div
+                style={{
+                  display: "flex",
+                  justifyContent: "space-between",
+                  marginBottom: "16px",
+                }}
+              >
+                <div>
+                  <span style={{ fontWeight: "bold" }}>Voucher No: </span>
+                  <span style={{ fontFamily: "monospace" }}>
+                    {printVoucher.voucherNo}
+                  </span>
+                </div>
+                <div>
+                  <span style={{ fontWeight: "bold" }}>Date: </span>
+                  {printVoucher.date}
+                </div>
+              </div>
+
+              {/* Category */}
+              <div
+                style={{
+                  marginBottom: "12px",
+                  padding: "8px 12px",
+                  border: "1px solid #ccc",
+                  borderRadius: "4px",
+                  background: "#f9f9f9",
+                }}
+              >
+                <span style={{ fontWeight: "bold" }}>
+                  Category / Account Head:{" "}
+                </span>
+                <span style={{ fontSize: "15px" }}>
+                  {printVoucher.category}
+                </span>
+              </div>
+
+              {/* Payee */}
+              {printVoucher.payee && (
+                <div style={{ marginBottom: "12px" }}>
+                  <span style={{ fontWeight: "bold" }}>Payee / Paid To: </span>
+                  {printVoucher.payee}
+                </div>
+              )}
+
+              {/* Description */}
+              <div style={{ marginBottom: "12px" }}>
+                <span style={{ fontWeight: "bold" }}>
+                  Description / Narration:{" "}
+                </span>
+                {printVoucher.description}
+              </div>
+
+              {/* Amount box */}
+              <div
+                style={{
+                  border: "2px solid #000",
+                  padding: "12px 16px",
+                  marginBottom: "12px",
+                  borderRadius: "4px",
+                }}
+              >
+                <div
+                  style={{
+                    display: "flex",
+                    justifyContent: "space-between",
+                    alignItems: "center",
+                  }}
+                >
+                  <span style={{ fontWeight: "bold", fontSize: "15px" }}>
+                    Amount (₹):
+                  </span>
+                  <span style={{ fontSize: "20px", fontWeight: "bold" }}>
+                    {formatINR(Number(printVoucher.amount))}
+                  </span>
+                </div>
+                <div
+                  style={{ marginTop: "6px", fontSize: "13px", color: "#555" }}
+                >
+                  <span style={{ fontWeight: "bold" }}>In Words: </span>
+                  {numberToWords(Number(printVoucher.amount))} Only
+                </div>
+              </div>
+
+              {/* Remarks */}
+              {printVoucher.remarks && (
+                <div style={{ marginBottom: "16px" }}>
+                  <span style={{ fontWeight: "bold" }}>Remarks: </span>
+                  {printVoucher.remarks}
+                </div>
+              )}
+
+              {/* Debit note */}
+              <div
+                style={{
+                  fontSize: "12px",
+                  color: "#666",
+                  marginBottom: "20px",
+                  padding: "6px 10px",
+                  border: "1px dashed #aaa",
+                  borderRadius: "3px",
+                }}
+              >
+                Debit Entry — Charged against Maintenance Revenue Account
+              </div>
+
+              {/* Footer signature */}
+              <div
+                style={{
+                  display: "flex",
+                  justifyContent: "space-between",
+                  marginTop: "40px",
+                  borderTop: "1px solid #ccc",
+                  paddingTop: "16px",
+                }}
+              >
+                <div style={{ textAlign: "center", minWidth: "180px" }}>
+                  <div
+                    style={{
+                      borderTop: "1px solid #000",
+                      marginTop: "40px",
+                      paddingTop: "6px",
+                      fontSize: "13px",
+                      fontWeight: "bold",
+                    }}
+                  >
+                    Prepared By
+                  </div>
+                  <div style={{ fontSize: "12px", color: "#555" }}>
+                    Admin / Accounts
+                  </div>
+                </div>
+                <div style={{ textAlign: "center", minWidth: "180px" }}>
+                  <div
+                    style={{
+                      borderTop: "1px solid #000",
+                      marginTop: "40px",
+                      paddingTop: "6px",
+                      fontSize: "13px",
+                      fontWeight: "bold",
+                    }}
+                  >
+                    Authorized Signatory
+                  </div>
+                  <div style={{ fontSize: "12px", color: "#555" }}>
+                    Society Chairman / Secretary
+                  </div>
+                </div>
+              </div>
+
+              {/* Print footer */}
+              <div
+                style={{
+                  textAlign: "center",
+                  marginTop: "24px",
+                  fontSize: "11px",
+                  color: "#888",
+                  borderTop: "1px solid #eee",
+                  paddingTop: "8px",
+                }}
+              >
+                This is a computer-generated voucher. Third Eye Home Society.
+              </div>
+            </div>
+          )}
+        </div>
+
+        {/* ======================== EXPENSE ENTRY FORM MODAL ======================== */}
+        <Dialog open={showExpenseModal} onOpenChange={setShowExpenseModal}>
+          <DialogContent className="max-w-lg" data-ocid="expense.dialog">
+            <DialogHeader>
+              <DialogTitle className="flex items-center gap-2">
+                <Receipt className="w-5 h-5 text-primary" />
+                New Expense Voucher
+              </DialogTitle>
+            </DialogHeader>
+            <div className="space-y-4 py-2">
+              <div className="grid grid-cols-2 gap-4">
+                <div>
+                  <Label className="text-xs mb-1 block">Voucher No</Label>
+                  <Input
+                    value={`EXP-${new Date().getFullYear()}-${String(expenseVouchers.length + 1).padStart(4, "0")}`}
+                    disabled
+                    className="bg-muted text-muted-foreground font-mono text-sm"
+                  />
+                </div>
+                <div>
+                  <Label className="text-xs mb-1 block">Date</Label>
+                  <Input
+                    data-ocid="expense.input"
+                    type="date"
+                    value={expenseForm.date}
+                    onChange={(e) =>
+                      setExpenseForm((p) => ({ ...p, date: e.target.value }))
+                    }
+                  />
+                </div>
+              </div>
+              <div>
+                <Label className="text-xs mb-1 block">
+                  Category (Debit Account Head)
+                </Label>
+                <select
+                  data-ocid="expense.select"
+                  value={expenseForm.category}
+                  onChange={(e) =>
+                    setExpenseForm((p) => ({ ...p, category: e.target.value }))
+                  }
+                  className="w-full border border-input rounded-md px-3 py-2 text-sm bg-background focus:outline-none focus:ring-2 focus:ring-ring"
+                >
+                  <option value="">Select expense category…</option>
+                  {loadCategories(
+                    "expenseCategories",
+                    DEFAULT_EXPENSE_CATEGORIES,
+                  ).map((cat) => (
+                    <option key={cat} value={cat}>
+                      {cat}
+                    </option>
+                  ))}
+                </select>
+              </div>
+              <div>
+                <Label className="text-xs mb-1 block">
+                  Description / Narration
+                </Label>
+                <Input
+                  data-ocid="expense.textarea"
+                  placeholder="e.g. Salary for March 2026"
+                  value={expenseForm.description}
+                  onChange={(e) =>
+                    setExpenseForm((p) => ({
+                      ...p,
+                      description: e.target.value,
+                    }))
+                  }
+                />
+              </div>
+              <div className="grid grid-cols-2 gap-4">
+                <div>
+                  <Label className="text-xs mb-1 block">Amount (₹)</Label>
+                  <Input
+                    type="number"
+                    placeholder="0"
+                    value={expenseForm.amount}
+                    onChange={(e) =>
+                      setExpenseForm((p) => ({ ...p, amount: e.target.value }))
+                    }
+                  />
+                </div>
+                <div>
+                  <Label className="text-xs mb-1 block">
+                    Payee / Paid To (optional)
+                  </Label>
+                  <Input
+                    placeholder="e.g. Ramesh Kumar"
+                    value={expenseForm.payee}
+                    onChange={(e) =>
+                      setExpenseForm((p) => ({ ...p, payee: e.target.value }))
+                    }
+                  />
+                </div>
+              </div>
+              <div>
+                <Label className="text-xs mb-1 block">Remarks (optional)</Label>
+                <textarea
+                  placeholder="Any additional notes…"
+                  value={expenseForm.remarks}
+                  onChange={(e) =>
+                    setExpenseForm((p) => ({ ...p, remarks: e.target.value }))
+                  }
+                  className="w-full border border-input rounded-md px-3 py-2 text-sm bg-background focus:outline-none focus:ring-2 focus:ring-ring resize-none"
+                  rows={2}
+                />
+              </div>
+            </div>
+            <DialogFooter>
+              <Button
+                variant="outline"
+                data-ocid="expense.cancel_button"
+                onClick={() => setShowExpenseModal(false)}
+              >
+                Cancel
+              </Button>
+              <Button
+                data-ocid="expense.submit_button"
+                disabled={
+                  expenseSaving ||
+                  !expenseForm.category ||
+                  !expenseForm.description ||
+                  !expenseForm.amount
+                }
+                onClick={async () => {
+                  if (!actor) return;
+                  setExpenseSaving(true);
+                  const voucherNo = `EXP-${new Date().getFullYear()}-${String(expenseVouchers.length + 1).padStart(4, "0")}`;
+                  try {
+                    await actor.addExpenseVoucher(
+                      voucherNo,
+                      expenseForm.date,
+                      expenseForm.category,
+                      expenseForm.description,
+                      BigInt(Math.round(Number(expenseForm.amount))),
+                      expenseForm.payee,
+                      expenseForm.remarks,
+                    );
+                    toast.success("Expense voucher saved");
+                    setShowExpenseModal(false);
+                    const updated = await actor.getAllExpenseVouchers();
+                    setExpenseVouchers(
+                      [...updated].sort(
+                        (a, b) => Number(b.entryDate) - Number(a.entryDate),
+                      ),
+                    );
+                  } catch {
+                    toast.error("Failed to save expense voucher");
+                  } finally {
+                    setExpenseSaving(false);
+                  }
+                }}
+              >
+                {expenseSaving ? (
+                  <Loader2 className="w-4 h-4 animate-spin mr-2" />
+                ) : null}
+                Save Voucher
+              </Button>
+            </DialogFooter>
+          </DialogContent>
+        </Dialog>
+
+        {/* Expense delete confirmation */}
+        <AlertDialog
+          open={showExpenseDeleteConfirm}
+          onOpenChange={setShowExpenseDeleteConfirm}
+        >
+          <AlertDialogContent data-ocid="expense.dialog">
+            <AlertDialogHeader>
+              <AlertDialogTitle>Delete Expense Voucher?</AlertDialogTitle>
+              <AlertDialogDescription>
+                This will permanently delete this expense voucher. This action
+                cannot be undone.
+              </AlertDialogDescription>
+            </AlertDialogHeader>
+            <AlertDialogFooter>
+              <AlertDialogCancel
+                data-ocid="expense.cancel_button"
+                onClick={() => {
+                  setShowExpenseDeleteConfirm(false);
+                  setDeleteExpenseId(null);
+                }}
+              >
+                Cancel
+              </AlertDialogCancel>
+              <AlertDialogAction
+                data-ocid="expense.confirm_button"
+                disabled={deletingExpense}
+                className="bg-red-600 hover:bg-red-700 text-white"
+                onClick={async () => {
+                  if (!actor || deleteExpenseId === null) return;
+                  setDeletingExpense(true);
+                  try {
+                    await actor.deleteExpenseVoucher(deleteExpenseId);
+                    toast.success("Voucher deleted");
+                    setExpenseVouchers((prev) =>
+                      prev.filter((v) => v.id !== deleteExpenseId),
+                    );
+                  } catch {
+                    toast.error("Failed to delete voucher");
+                  } finally {
+                    setDeletingExpense(false);
+                    setShowExpenseDeleteConfirm(false);
+                    setDeleteExpenseId(null);
+                  }
+                }}
+              >
+                {deletingExpense ? (
+                  <Loader2 className="w-4 h-4 animate-spin mr-2" />
+                ) : null}
+                Delete
               </AlertDialogAction>
             </AlertDialogFooter>
           </AlertDialogContent>

@@ -275,7 +275,7 @@ export default function ResidentsPage() {
     setSaving(true);
     try {
       const principal = Principal.fromText(linkPrincipal.trim());
-      await actor.linkOwnerToPrincipal(selectedOwner.id, principal);
+      await (actor as any).linkOwnerToPrincipal(selectedOwner.id, principal);
       toast.success("Principal linked successfully");
       setModal(null);
     } catch (e: any) {

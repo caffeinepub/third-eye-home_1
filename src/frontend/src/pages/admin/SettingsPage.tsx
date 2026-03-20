@@ -2,8 +2,10 @@ import { Button } from "@/components/ui/button";
 import {
   AlertTriangle,
   Building2,
+  CheckCircle2,
   Download,
   Eye,
+  Loader2,
   Plus,
   RefreshCcw,
   Shield,
@@ -17,8 +19,31 @@ import { toast } from "sonner";
 import { TransactionType } from "../../backend";
 import { useActor } from "../../hooks/useActor";
 
+function ConnectionStatus({
+  actor,
+  isFetching,
+}: {
+  actor: unknown;
+  isFetching: boolean;
+}) {
+  if (isFetching || !actor) {
+    return (
+      <span className="inline-flex items-center gap-1.5 text-xs text-amber-600 font-medium">
+        <Loader2 className="w-3 h-3 animate-spin" />
+        Connecting...
+      </span>
+    );
+  }
+  return (
+    <span className="inline-flex items-center gap-1.5 text-xs text-emerald-600 font-medium">
+      <CheckCircle2 className="w-3 h-3" />
+      Connected
+    </span>
+  );
+}
+
 export default function SettingsPage() {
-  const { actor } = useActor();
+  const { actor, isFetching } = useActor();
   const [exporting, setExporting] = useState(false);
   const [importing, setImporting] = useState(false);
   const [importProgress, setImportProgress] = useState("");
@@ -82,7 +107,10 @@ export default function SettingsPage() {
   };
 
   const handleExportBackup = async () => {
-    if (!actor) return;
+    if (!actor) {
+      toast.error("Connection not ready. Please wait a moment and try again.");
+      return;
+    }
     setExporting(true);
     try {
       const [owners, transactions] = await Promise.all([
@@ -94,24 +122,31 @@ export default function SettingsPage() {
         exportedAt: new Date().toISOString(),
         societyName: "Third Eye Residency",
         flatOwners: owners.map((o) => ({
-          id: o.id.toString(),
-          blockNo: o.blockNo,
-          flatNo: o.flatNo,
-          ownerName: o.ownerName,
-          phone: o.phone,
-          maintenanceAmount: o.maintenanceAmount.toString(),
-          username: o.username,
-          createdAt: new Date(Number(o.createdAt) / 1_000_000).toISOString(),
+          id: o.id != null ? String(o.id) : "0",
+          blockNo: o.blockNo ?? "",
+          flatNo: o.flatNo ?? "",
+          ownerName: o.ownerName ?? "",
+          phone: o.phone ?? "",
+          maintenanceAmount:
+            o.maintenanceAmount != null ? String(o.maintenanceAmount) : "0",
+          username: o.username ?? "",
+          createdAt:
+            o.createdAt != null
+              ? new Date(Number(o.createdAt) / 1_000_000).toISOString()
+              : new Date().toISOString(),
         })),
         transactions: transactions.map((t) => ({
-          id: t.id.toString(),
-          flatOwnerId: t.flatOwnerId.toString(),
-          date: t.date,
-          entryDate: new Date(Number(t.entryDate) / 1_000_000).toISOString(),
+          id: t.id != null ? String(t.id) : "0",
+          flatOwnerId: t.flatOwnerId != null ? String(t.flatOwnerId) : "0",
+          date: t.date ?? "",
+          entryDate:
+            t.entryDate != null
+              ? new Date(Number(t.entryDate) / 1_000_000).toISOString()
+              : new Date().toISOString(),
           type: t.transactionType === "Debit" ? "Debit" : "Credit",
-          description: t.description,
-          amount: t.amount.toString(),
-          createdBy: t.createdBy,
+          description: t.description ?? "",
+          amount: t.amount != null ? String(t.amount) : "0",
+          createdBy: t.createdBy ?? "",
         })),
       };
 
@@ -137,7 +172,9 @@ export default function SettingsPage() {
       );
     } catch (err) {
       console.error(err);
-      toast.error("Failed to export backup. Please try again.");
+      toast.error(
+        `Failed to export backup: ${err instanceof Error ? err.message : String(err)}`,
+      );
     } finally {
       setExporting(false);
     }
@@ -145,7 +182,13 @@ export default function SettingsPage() {
 
   const handleImportBackup = async (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
-    if (!file || !actor) return;
+    if (!file) return;
+
+    if (!actor) {
+      toast.error("Connection not ready. Please wait and try again.");
+      if (fileInputRef.current) fileInputRef.current.value = "";
+      return;
+    }
 
     setImporting(true);
     setImportProgress("Reading backup file...");
@@ -164,16 +207,7 @@ export default function SettingsPage() {
         rawText.charCodeAt(0) === 0xfeff ? rawText.slice(1) : rawText.trim();
       const backup = JSON.parse(text);
 
-      if (!backup.flatOwners || !backup.transactions) {
-        toast.error(
-          "Invalid backup file format. Please use a valid Third Eye Home backup.",
-        );
-        setImporting(false);
-        setImportProgress("");
-        if (fileInputRef.current) fileInputRef.current.value = "";
-        return;
-      }
-
+      // Support both `flatOwners` and legacy `residents` field names
       const owners: Array<{
         id: string;
         blockNo: string;
@@ -182,7 +216,8 @@ export default function SettingsPage() {
         phone: string;
         maintenanceAmount: string;
         username: string;
-      }> = backup.flatOwners;
+      }> = backup.flatOwners || backup.residents || [];
+
       const txns: Array<{
         flatOwnerId: string;
         date: string;
@@ -190,7 +225,17 @@ export default function SettingsPage() {
         transactionType?: unknown;
         description: string;
         amount: string;
-      }> = backup.transactions;
+      }> = backup.transactions || [];
+
+      if (owners.length === 0 && txns.length === 0) {
+        toast.error(
+          "Invalid backup file format or empty backup. Please use a valid Third Eye Home backup.",
+        );
+        setImporting(false);
+        setImportProgress("");
+        if (fileInputRef.current) fileInputRef.current.value = "";
+        return;
+      }
 
       // Show summary and ask for confirmation before proceeding
       const confirmed = window.confirm(
@@ -214,6 +259,7 @@ export default function SettingsPage() {
       // Step 2: Re-create flat owners
       let ownerCount = 0;
       let skippedCount = 0;
+      let ownerFailCount = 0;
       for (const owner of owners) {
         if (existingUsernames.has(owner.username)) {
           // Already exists -- find their current ID
@@ -233,7 +279,7 @@ export default function SettingsPage() {
             owner.flatNo,
             owner.ownerName,
             owner.phone,
-            BigInt(owner.maintenanceAmount),
+            BigInt(owner.maintenanceAmount || "0"),
             owner.username,
             "ThirdEye@1234", // default reset password
           );
@@ -241,6 +287,7 @@ export default function SettingsPage() {
           ownerCount++;
         } catch (err) {
           console.error("Failed to create owner", owner.username, err);
+          ownerFailCount++;
         }
       }
 
@@ -276,7 +323,7 @@ export default function SettingsPage() {
             newOwnerId,
             txType,
             txn.description,
-            BigInt(txn.amount),
+            BigInt(txn.amount || "0"),
             txn.date,
           );
           txnCount++;
@@ -293,13 +340,19 @@ export default function SettingsPage() {
           `Note: ${skippedCount} residents were skipped because they already exist. Their transactions were still restored.`,
         );
       }
+      if (ownerFailCount > 0) {
+        toast.warning(
+          `Warning: ${ownerFailCount} residents could not be restored. Check the browser console for details.`,
+        );
+      }
 
       // Reload the page so admin immediately sees restored data
       window.location.reload();
     } catch (err: unknown) {
       console.error("Restore error:", err);
-      const msg = err instanceof Error ? err.message : String(err);
-      toast.error(`Failed to read backup file: ${msg}`);
+      toast.error(
+        `Restore failed: ${err instanceof Error ? err.message : String(err)}`,
+      );
     } finally {
       setImporting(false);
       setImportProgress("");
@@ -338,16 +391,19 @@ export default function SettingsPage() {
     <div className="max-w-2xl space-y-5">
       {/* Download Backup */}
       <div className="bg-card rounded-xl border border-border shadow-card p-6">
-        <div className="flex items-center gap-3 mb-4">
-          <div className="w-10 h-10 rounded-lg bg-[oklch(0.94_0.06_145)] flex items-center justify-center">
-            <Download className="w-5 h-5 text-[oklch(0.45_0.15_145)]" />
+        <div className="flex items-center justify-between mb-4">
+          <div className="flex items-center gap-3">
+            <div className="w-10 h-10 rounded-lg bg-[oklch(0.94_0.06_145)] flex items-center justify-center">
+              <Download className="w-5 h-5 text-[oklch(0.45_0.15_145)]" />
+            </div>
+            <div>
+              <h2 className="font-semibold">Download Backup</h2>
+              <p className="text-xs text-muted-foreground">
+                Download all residents and transactions as a backup file
+              </p>
+            </div>
           </div>
-          <div>
-            <h2 className="font-semibold">Download Backup</h2>
-            <p className="text-xs text-muted-foreground">
-              Download all residents and transactions as a backup file
-            </p>
-          </div>
+          <ConnectionStatus actor={actor} isFetching={isFetching} />
         </div>
         <p className="text-sm text-muted-foreground mb-4">
           Export a complete backup of all flat owner profiles and transaction
@@ -355,26 +411,34 @@ export default function SettingsPage() {
         </p>
         <Button
           onClick={handleExportBackup}
-          disabled={exporting || !actor}
+          disabled={exporting || !actor || isFetching}
           className="gap-2"
+          data-ocid="settings.backup.button"
         >
-          <Download className="w-4 h-4" />
+          {exporting ? (
+            <Loader2 className="w-4 h-4 animate-spin" />
+          ) : (
+            <Download className="w-4 h-4" />
+          )}
           {exporting ? "Exporting..." : "Download Backup (JSON)"}
         </Button>
       </div>
 
       {/* Upload / Restore Backup */}
       <div className="bg-card rounded-xl border border-border shadow-card p-6">
-        <div className="flex items-center gap-3 mb-4">
-          <div className="w-10 h-10 rounded-lg bg-[oklch(0.94_0.06_45)] flex items-center justify-center">
-            <Upload className="w-5 h-5 text-[oklch(0.55_0.18_45)]" />
+        <div className="flex items-center justify-between mb-4">
+          <div className="flex items-center gap-3">
+            <div className="w-10 h-10 rounded-lg bg-[oklch(0.94_0.06_45)] flex items-center justify-center">
+              <Upload className="w-5 h-5 text-[oklch(0.55_0.18_45)]" />
+            </div>
+            <div>
+              <h2 className="font-semibold">Restore from Backup</h2>
+              <p className="text-xs text-muted-foreground">
+                Upload a backup file to restore all residents and transactions
+              </p>
+            </div>
           </div>
-          <div>
-            <h2 className="font-semibold">Restore from Backup</h2>
-            <p className="text-xs text-muted-foreground">
-              Upload a backup file to restore all residents and transactions
-            </p>
-          </div>
+          <ConnectionStatus actor={actor} isFetching={isFetching} />
         </div>
 
         <div className="flex items-start gap-2 p-3 bg-[oklch(0.97_0.03_45)] border border-[oklch(0.88_0.08_45)] rounded-lg mb-4">
@@ -387,7 +451,8 @@ export default function SettingsPage() {
         </div>
 
         {importing && importProgress && (
-          <div className="mb-4 p-3 bg-muted rounded-lg text-sm text-muted-foreground animate-pulse">
+          <div className="mb-4 p-3 bg-muted rounded-lg text-sm text-muted-foreground animate-pulse flex items-center gap-2">
+            <Loader2 className="w-4 h-4 animate-spin shrink-0" />
             {importProgress}
           </div>
         )}
@@ -401,11 +466,16 @@ export default function SettingsPage() {
         />
         <Button
           onClick={() => fileInputRef.current?.click()}
-          disabled={importing || !actor}
+          disabled={importing || !actor || isFetching}
           variant="outline"
           className="gap-2"
+          data-ocid="settings.restore.button"
         >
-          <Upload className="w-4 h-4" />
+          {importing ? (
+            <Loader2 className="w-4 h-4 animate-spin" />
+          ) : (
+            <Upload className="w-4 h-4" />
+          )}
           {importing ? "Restoring..." : "Upload Backup File (JSON)"}
         </Button>
       </div>
@@ -441,8 +511,13 @@ export default function SettingsPage() {
           disabled={resetting || !actor}
           variant="destructive"
           className="gap-2"
+          data-ocid="settings.reset_financial.button"
         >
-          <RefreshCcw className="w-4 h-4" />
+          {resetting ? (
+            <Loader2 className="w-4 h-4 animate-spin" />
+          ) : (
+            <RefreshCcw className="w-4 h-4" />
+          )}
           {resetting ? "Resetting..." : "Reset Financial Data to Zero"}
         </Button>
       </div>

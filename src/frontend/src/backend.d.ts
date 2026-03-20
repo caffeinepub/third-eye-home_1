@@ -18,14 +18,21 @@ export interface FlatOwnerPublic {
     maintenanceAmount: bigint;
 }
 export type Time = bigint;
+export interface ExpenseVoucher {
+    id: bigint;
+    entryDate: Time;
+    date: string;
+    description: string;
+    category: string;
+    payee: string;
+    voucherNo: string;
+    amount: bigint;
+    remarks: string;
+}
 export interface SocietyOverview {
     totalFlats: bigint;
     totalCollected: bigint;
     totalPendingDues: bigint;
-}
-export interface UserProfile {
-    name: string;
-    flatOwnerId?: bigint;
 }
 export interface Transaction {
     id: bigint;
@@ -47,26 +54,24 @@ export enum UserRole {
     guest = "guest"
 }
 export interface backendInterface {
+    addExpenseVoucher(voucherNo: string, date: string, category: string, description: string, amount: bigint, payee: string, remarks: string): Promise<bigint>;
     addManualTransaction(flatOwnerId: bigint, transactionType: TransactionType, description: string, amount: bigint, monthYear: string): Promise<void>;
     assignCallerUserRole(user: Principal, role: UserRole): Promise<void>;
     createFlatOwner(blockNo: string, flatNo: string, ownerName: string, phone: string, maintenanceAmount: bigint, username: string, passwordHash: string): Promise<bigint>;
+    deleteExpenseVoucher(id: bigint): Promise<void>;
     deleteFlatOwner(id: bigint): Promise<void>;
     deleteTransaction(id: bigint): Promise<void>;
+    getAllExpenseVouchers(): Promise<Array<ExpenseVoucher>>;
     getAllFlatOwners(): Promise<Array<FlatOwnerPublic>>;
     getAllTransactions(): Promise<Array<Transaction>>;
-    getCallerUserProfile(): Promise<UserProfile | null>;
     getCallerUserRole(): Promise<UserRole>;
     getFlatStatement(flatOwnerId: bigint): Promise<Array<Transaction>>;
-    getMyBalance(): Promise<bigint>;
-    getMyProfile(): Promise<FlatOwnerPublic>;
-    getMyStatement(): Promise<Array<Transaction>>;
+    getOwnerBalance(ownerId: bigint): Promise<bigint>;
+    getOwnerStatement(ownerId: bigint): Promise<Array<Transaction>>;
     getSocietyOverview(): Promise<SocietyOverview>;
-    getUserProfile(user: Principal): Promise<UserProfile | null>;
     isCallerAdmin(): Promise<boolean>;
-    linkOwnerToPrincipal(ownerId: bigint, ownerPrincipal: Principal): Promise<void>;
     loginOwner(username: string, password: string): Promise<FlatOwnerPublic | null>;
     resetFinancialData(): Promise<void>;
-    saveCallerUserProfile(profile: UserProfile): Promise<void>;
     updateFlatOwner(id: bigint, blockNo: string, flatNo: string, ownerName: string, phone: string, maintenanceAmount: bigint): Promise<void>;
     updateMaintenanceDebit(monthYear: string): Promise<void>;
     updateTransaction(id: bigint, transactionType: TransactionType, description: string, amount: bigint, monthYear: string): Promise<void>;

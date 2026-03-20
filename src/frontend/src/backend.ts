@@ -100,14 +100,21 @@ export interface FlatOwnerPublic {
     maintenanceAmount: bigint;
 }
 export type Time = bigint;
+export interface ExpenseVoucher {
+    id: bigint;
+    entryDate: Time;
+    date: string;
+    description: string;
+    category: string;
+    payee: string;
+    voucherNo: string;
+    amount: bigint;
+    remarks: string;
+}
 export interface SocietyOverview {
     totalFlats: bigint;
     totalCollected: bigint;
     totalPendingDues: bigint;
-}
-export interface UserProfile {
-    name: string;
-    flatOwnerId?: bigint;
 }
 export interface Transaction {
     id: bigint;
@@ -130,31 +137,29 @@ export enum UserRole {
 }
 export interface backendInterface {
     _initializeAccessControlWithSecret(userSecret: string): Promise<void>;
+    addExpenseVoucher(voucherNo: string, date: string, category: string, description: string, amount: bigint, payee: string, remarks: string): Promise<bigint>;
     addManualTransaction(flatOwnerId: bigint, transactionType: TransactionType, description: string, amount: bigint, monthYear: string): Promise<void>;
     assignCallerUserRole(user: Principal, role: UserRole): Promise<void>;
     createFlatOwner(blockNo: string, flatNo: string, ownerName: string, phone: string, maintenanceAmount: bigint, username: string, passwordHash: string): Promise<bigint>;
+    deleteExpenseVoucher(id: bigint): Promise<void>;
     deleteFlatOwner(id: bigint): Promise<void>;
     deleteTransaction(id: bigint): Promise<void>;
-    updateTransaction(id: bigint, transactionType: TransactionType, description: string, amount: bigint, monthYear: string): Promise<void>;
+    getAllExpenseVouchers(): Promise<Array<ExpenseVoucher>>;
     getAllFlatOwners(): Promise<Array<FlatOwnerPublic>>;
     getAllTransactions(): Promise<Array<Transaction>>;
-    getCallerUserProfile(): Promise<UserProfile | null>;
     getCallerUserRole(): Promise<UserRole>;
     getFlatStatement(flatOwnerId: bigint): Promise<Array<Transaction>>;
-    getMyBalance(): Promise<bigint>;
-    getMyProfile(): Promise<FlatOwnerPublic>;
-    getMyStatement(): Promise<Array<Transaction>>;
+    getOwnerBalance(ownerId: bigint): Promise<bigint>;
+    getOwnerStatement(ownerId: bigint): Promise<Array<Transaction>>;
     getSocietyOverview(): Promise<SocietyOverview>;
-    getUserProfile(user: Principal): Promise<UserProfile | null>;
     isCallerAdmin(): Promise<boolean>;
-    linkOwnerToPrincipal(ownerId: bigint, ownerPrincipal: Principal): Promise<void>;
     loginOwner(username: string, password: string): Promise<FlatOwnerPublic | null>;
-    saveCallerUserProfile(profile: UserProfile): Promise<void>;
+    resetFinancialData(): Promise<void>;
     updateFlatOwner(id: bigint, blockNo: string, flatNo: string, ownerName: string, phone: string, maintenanceAmount: bigint): Promise<void>;
     updateMaintenanceDebit(monthYear: string): Promise<void>;
-    resetFinancialData(): Promise<void>;
+    updateTransaction(id: bigint, transactionType: TransactionType, description: string, amount: bigint, monthYear: string): Promise<void>;
 }
-import type { FlatOwnerPublic as _FlatOwnerPublic, Time as _Time, Transaction as _Transaction, TransactionType as _TransactionType, UserProfile as _UserProfile, UserRole as _UserRole } from "./declarations/backend.did.d.ts";
+import type { FlatOwnerPublic as _FlatOwnerPublic, Time as _Time, Transaction as _Transaction, TransactionType as _TransactionType, UserRole as _UserRole } from "./declarations/backend.did.d.ts";
 export class Backend implements backendInterface {
     constructor(private actor: ActorSubclass<_SERVICE>, private _uploadFile: (file: ExternalBlob) => Promise<Uint8Array>, private _downloadFile: (file: Uint8Array) => Promise<ExternalBlob>, private processError?: (error: unknown) => never){}
     async _initializeAccessControlWithSecret(arg0: string): Promise<void> {
@@ -168,6 +173,20 @@ export class Backend implements backendInterface {
             }
         } else {
             const result = await this.actor._initializeAccessControlWithSecret(arg0);
+            return result;
+        }
+    }
+    async addExpenseVoucher(arg0: string, arg1: string, arg2: string, arg3: string, arg4: bigint, arg5: string, arg6: string): Promise<bigint> {
+        if (this.processError) {
+            try {
+                const result = await this.actor.addExpenseVoucher(arg0, arg1, arg2, arg3, arg4, arg5, arg6);
+                return result;
+            } catch (e) {
+                this.processError(e);
+                throw new Error("unreachable");
+            }
+        } else {
+            const result = await this.actor.addExpenseVoucher(arg0, arg1, arg2, arg3, arg4, arg5, arg6);
             return result;
         }
     }
@@ -213,6 +232,20 @@ export class Backend implements backendInterface {
             return result;
         }
     }
+    async deleteExpenseVoucher(arg0: bigint): Promise<void> {
+        if (this.processError) {
+            try {
+                const result = await this.actor.deleteExpenseVoucher(arg0);
+                return result;
+            } catch (e) {
+                this.processError(e);
+                throw new Error("unreachable");
+            }
+        } else {
+            const result = await this.actor.deleteExpenseVoucher(arg0);
+            return result;
+        }
+    }
     async deleteFlatOwner(arg0: bigint): Promise<void> {
         if (this.processError) {
             try {
@@ -241,17 +274,17 @@ export class Backend implements backendInterface {
             return result;
         }
     }
-    async updateTransaction(arg0: bigint, arg1: TransactionType, arg2: string, arg3: bigint, arg4: string): Promise<void> {
+    async getAllExpenseVouchers(): Promise<Array<ExpenseVoucher>> {
         if (this.processError) {
             try {
-                const result = await this.actor.updateTransaction(arg0, to_candid_TransactionType_n1(this._uploadFile, this._downloadFile, arg1), arg2, arg3, arg4);
+                const result = await this.actor.getAllExpenseVouchers();
                 return result;
             } catch (e) {
                 this.processError(e);
                 throw new Error("unreachable");
             }
         } else {
-            const result = await this.actor.updateTransaction(arg0, to_candid_TransactionType_n1(this._uploadFile, this._downloadFile, arg1), arg2, arg3, arg4);
+            const result = await this.actor.getAllExpenseVouchers();
             return result;
         }
     }
@@ -273,98 +306,70 @@ export class Backend implements backendInterface {
         if (this.processError) {
             try {
                 const result = await this.actor.getAllTransactions();
-                return from_candid_vec_n11(this._uploadFile, this._downloadFile, result);
+                return from_candid_vec_n5(this._uploadFile, this._downloadFile, result);
             } catch (e) {
                 this.processError(e);
                 throw new Error("unreachable");
             }
         } else {
             const result = await this.actor.getAllTransactions();
-            return from_candid_vec_n11(this._uploadFile, this._downloadFile, result);
-        }
-    }
-    async getCallerUserProfile(): Promise<UserProfile | null> {
-        if (this.processError) {
-            try {
-                const result = await this.actor.getCallerUserProfile();
-                return from_candid_opt_n5(this._uploadFile, this._downloadFile, result);
-            } catch (e) {
-                this.processError(e);
-                throw new Error("unreachable");
-            }
-        } else {
-            const result = await this.actor.getCallerUserProfile();
-            return from_candid_opt_n5(this._uploadFile, this._downloadFile, result);
+            return from_candid_vec_n5(this._uploadFile, this._downloadFile, result);
         }
     }
     async getCallerUserRole(): Promise<UserRole> {
         if (this.processError) {
             try {
                 const result = await this.actor.getCallerUserRole();
-                return from_candid_UserRole_n9(this._uploadFile, this._downloadFile, result);
+                return from_candid_UserRole_n10(this._uploadFile, this._downloadFile, result);
             } catch (e) {
                 this.processError(e);
                 throw new Error("unreachable");
             }
         } else {
             const result = await this.actor.getCallerUserRole();
-            return from_candid_UserRole_n9(this._uploadFile, this._downloadFile, result);
+            return from_candid_UserRole_n10(this._uploadFile, this._downloadFile, result);
         }
     }
     async getFlatStatement(arg0: bigint): Promise<Array<Transaction>> {
         if (this.processError) {
             try {
                 const result = await this.actor.getFlatStatement(arg0);
-                return from_candid_vec_n11(this._uploadFile, this._downloadFile, result);
+                return from_candid_vec_n5(this._uploadFile, this._downloadFile, result);
             } catch (e) {
                 this.processError(e);
                 throw new Error("unreachable");
             }
         } else {
             const result = await this.actor.getFlatStatement(arg0);
-            return from_candid_vec_n11(this._uploadFile, this._downloadFile, result);
+            return from_candid_vec_n5(this._uploadFile, this._downloadFile, result);
         }
     }
-    async getMyBalance(): Promise<bigint> {
+    async getOwnerBalance(arg0: bigint): Promise<bigint> {
         if (this.processError) {
             try {
-                const result = await this.actor.getMyBalance();
+                const result = await this.actor.getOwnerBalance(arg0);
                 return result;
             } catch (e) {
                 this.processError(e);
                 throw new Error("unreachable");
             }
         } else {
-            const result = await this.actor.getMyBalance();
+            const result = await this.actor.getOwnerBalance(arg0);
             return result;
         }
     }
-    async getMyProfile(): Promise<FlatOwnerPublic> {
+    async getOwnerStatement(arg0: bigint): Promise<Array<Transaction>> {
         if (this.processError) {
             try {
-                const result = await this.actor.getMyProfile();
-                return result;
+                const result = await this.actor.getOwnerStatement(arg0);
+                return from_candid_vec_n5(this._uploadFile, this._downloadFile, result);
             } catch (e) {
                 this.processError(e);
                 throw new Error("unreachable");
             }
         } else {
-            const result = await this.actor.getMyProfile();
-            return result;
-        }
-    }
-    async getMyStatement(): Promise<Array<Transaction>> {
-        if (this.processError) {
-            try {
-                const result = await this.actor.getMyStatement();
-                return from_candid_vec_n11(this._uploadFile, this._downloadFile, result);
-            } catch (e) {
-                this.processError(e);
-                throw new Error("unreachable");
-            }
-        } else {
-            const result = await this.actor.getMyStatement();
-            return from_candid_vec_n11(this._uploadFile, this._downloadFile, result);
+            const result = await this.actor.getOwnerStatement(arg0);
+            return from_candid_vec_n5(this._uploadFile, this._downloadFile, result);
         }
     }
     async getSocietyOverview(): Promise<SocietyOverview> {
@@ -381,20 +386,6 @@ export class Backend implements backendInterface {
             return result;
         }
     }
-    async getUserProfile(arg0: Principal): Promise<UserProfile | null> {
-        if (this.processError) {
-            try {
-                const result = await this.actor.getUserProfile(arg0);
-                return from_candid_opt_n5(this._uploadFile, this._downloadFile, result);
-            } catch (e) {
-                this.processError(e);
-                throw new Error("unreachable");
-            }
-        } else {
-            const result = await this.actor.getUserProfile(arg0);
-            return from_candid_opt_n5(this._uploadFile, this._downloadFile, result);
-        }
-    }
     async isCallerAdmin(): Promise<boolean> {
         if (this.processError) {
             try {
@@ -409,45 +400,31 @@ export class Backend implements backendInterface {
             return result;
         }
     }
-    async linkOwnerToPrincipal(arg0: bigint, arg1: Principal): Promise<void> {
-        if (this.processError) {
-            try {
-                const result = await this.actor.linkOwnerToPrincipal(arg0, arg1);
-                return result;
-            } catch (e) {
-                this.processError(e);
-                throw new Error("unreachable");
-            }
-        } else {
-            const result = await this.actor.linkOwnerToPrincipal(arg0, arg1);
-            return result;
-        }
-    }
     async loginOwner(arg0: string, arg1: string): Promise<FlatOwnerPublic | null> {
         if (this.processError) {
             try {
                 const result = await this.actor.loginOwner(arg0, arg1);
-                return from_candid_opt_n16(this._uploadFile, this._downloadFile, result);
+                return from_candid_opt_n12(this._uploadFile, this._downloadFile, result);
             } catch (e) {
                 this.processError(e);
                 throw new Error("unreachable");
             }
         } else {
             const result = await this.actor.loginOwner(arg0, arg1);
-            return from_candid_opt_n16(this._uploadFile, this._downloadFile, result);
+            return from_candid_opt_n12(this._uploadFile, this._downloadFile, result);
         }
     }
-    async saveCallerUserProfile(arg0: UserProfile): Promise<void> {
+    async resetFinancialData(): Promise<void> {
         if (this.processError) {
             try {
-                const result = await this.actor.saveCallerUserProfile(to_candid_UserProfile_n17(this._uploadFile, this._downloadFile, arg0));
+                const result = await this.actor.resetFinancialData();
                 return result;
             } catch (e) {
                 this.processError(e);
                 throw new Error("unreachable");
             }
         } else {
-            const result = await this.actor.saveCallerUserProfile(to_candid_UserProfile_n17(this._uploadFile, this._downloadFile, arg0));
+            const result = await this.actor.resetFinancialData();
             return result;
         }
     }
@@ -479,43 +456,34 @@ export class Backend implements backendInterface {
             return result;
         }
     }
-    async resetFinancialData(): Promise<void> {
+    async updateTransaction(arg0: bigint, arg1: TransactionType, arg2: string, arg3: bigint, arg4: string): Promise<void> {
         if (this.processError) {
             try {
-                const result = await this.actor.resetFinancialData();
+                const result = await this.actor.updateTransaction(arg0, to_candid_TransactionType_n1(this._uploadFile, this._downloadFile, arg1), arg2, arg3, arg4);
                 return result;
             } catch (e) {
                 this.processError(e);
                 throw new Error("unreachable");
             }
         } else {
-            const result = await this.actor.resetFinancialData();
+            const result = await this.actor.updateTransaction(arg0, to_candid_TransactionType_n1(this._uploadFile, this._downloadFile, arg1), arg2, arg3, arg4);
             return result;
         }
     }
 }
-function from_candid_TransactionType_n14(_uploadFile: (file: ExternalBlob) => Promise<Uint8Array>, _downloadFile: (file: Uint8Array) => Promise<ExternalBlob>, value: _TransactionType): TransactionType {
-    return from_candid_variant_n15(_uploadFile, _downloadFile, value);
+function from_candid_TransactionType_n8(_uploadFile: (file: ExternalBlob) => Promise<Uint8Array>, _downloadFile: (file: Uint8Array) => Promise<ExternalBlob>, value: _TransactionType): TransactionType {
+    return from_candid_variant_n9(_uploadFile, _downloadFile, value);
 }
-function from_candid_Transaction_n12(_uploadFile: (file: ExternalBlob) => Promise<Uint8Array>, _downloadFile: (file: Uint8Array) => Promise<ExternalBlob>, value: _Transaction): Transaction {
-    return from_candid_record_n13(_uploadFile, _downloadFile, value);
-}
-function from_candid_UserProfile_n6(_uploadFile: (file: ExternalBlob) => Promise<Uint8Array>, _downloadFile: (file: Uint8Array) => Promise<ExternalBlob>, value: _UserProfile): UserProfile {
+function from_candid_Transaction_n6(_uploadFile: (file: ExternalBlob) => Promise<Uint8Array>, _downloadFile: (file: Uint8Array) => Promise<ExternalBlob>, value: _Transaction): Transaction {
     return from_candid_record_n7(_uploadFile, _downloadFile, value);
 }
-function from_candid_UserRole_n9(_uploadFile: (file: ExternalBlob) => Promise<Uint8Array>, _downloadFile: (file: Uint8Array) => Promise<ExternalBlob>, value: _UserRole): UserRole {
-    return from_candid_variant_n10(_uploadFile, _downloadFile, value);
+function from_candid_UserRole_n10(_uploadFile: (file: ExternalBlob) => Promise<Uint8Array>, _downloadFile: (file: Uint8Array) => Promise<ExternalBlob>, value: _UserRole): UserRole {
+    return from_candid_variant_n11(_uploadFile, _downloadFile, value);
 }
-function from_candid_opt_n16(_uploadFile: (file: ExternalBlob) => Promise<Uint8Array>, _downloadFile: (file: Uint8Array) => Promise<ExternalBlob>, value: [] | [_FlatOwnerPublic]): FlatOwnerPublic | null {
+function from_candid_opt_n12(_uploadFile: (file: ExternalBlob) => Promise<Uint8Array>, _downloadFile: (file: Uint8Array) => Promise<ExternalBlob>, value: [] | [_FlatOwnerPublic]): FlatOwnerPublic | null {
     return value.length === 0 ? null : value[0];
 }
-function from_candid_opt_n5(_uploadFile: (file: ExternalBlob) => Promise<Uint8Array>, _downloadFile: (file: Uint8Array) => Promise<ExternalBlob>, value: [] | [_UserProfile]): UserProfile | null {
-    return value.length === 0 ? null : from_candid_UserProfile_n6(_uploadFile, _downloadFile, value[0]);
-}
-function from_candid_opt_n8(_uploadFile: (file: ExternalBlob) => Promise<Uint8Array>, _downloadFile: (file: Uint8Array) => Promise<ExternalBlob>, value: [] | [bigint]): bigint | null {
-    return value.length === 0 ? null : value[0];
-}
-function from_candid_record_n13(_uploadFile: (file: ExternalBlob) => Promise<Uint8Array>, _downloadFile: (file: Uint8Array) => Promise<ExternalBlob>, value: {
+function from_candid_record_n7(_uploadFile: (file: ExternalBlob) => Promise<Uint8Array>, _downloadFile: (file: Uint8Array) => Promise<ExternalBlob>, value: {
     id: bigint;
     entryDate: _Time;
     transactionType: _TransactionType;
@@ -537,7 +505,7 @@ function from_candid_record_n13(_uploadFile: (file: ExternalBlob) => Promise<Uin
     return {
         id: value.id,
         entryDate: value.entryDate,
-        transactionType: from_candid_TransactionType_n14(_uploadFile, _downloadFile, value.transactionType),
+        transactionType: from_candid_TransactionType_n8(_uploadFile, _downloadFile, value.transactionType),
         date: value.date,
         createdBy: value.createdBy,
         flatOwnerId: value.flatOwnerId,
@@ -545,19 +513,7 @@ function from_candid_record_n13(_uploadFile: (file: ExternalBlob) => Promise<Uin
         amount: value.amount
     };
 }
-function from_candid_record_n7(_uploadFile: (file: ExternalBlob) => Promise<Uint8Array>, _downloadFile: (file: Uint8Array) => Promise<ExternalBlob>, value: {
-    name: string;
-    flatOwnerId: [] | [bigint];
-}): {
-    name: string;
-    flatOwnerId?: bigint;
-} {
-    return {
-        name: value.name,
-        flatOwnerId: record_opt_to_undefined(from_candid_opt_n8(_uploadFile, _downloadFile, value.flatOwnerId))
-    };
-}
-function from_candid_variant_n10(_uploadFile: (file: ExternalBlob) => Promise<Uint8Array>, _downloadFile: (file: Uint8Array) => Promise<ExternalBlob>, value: {
+function from_candid_variant_n11(_uploadFile: (file: ExternalBlob) => Promise<Uint8Array>, _downloadFile: (file: Uint8Array) => Promise<ExternalBlob>, value: {
     admin: null;
 } | {
     user: null;
@@ -566,36 +522,21 @@ function from_candid_variant_n10(_uploadFile: (file: ExternalBlob) => Promise<Ui
 }): UserRole {
     return "admin" in value ? UserRole.admin : "user" in value ? UserRole.user : "guest" in value ? UserRole.guest : value;
 }
-function from_candid_variant_n15(_uploadFile: (file: ExternalBlob) => Promise<Uint8Array>, _downloadFile: (file: Uint8Array) => Promise<ExternalBlob>, value: {
+function from_candid_variant_n9(_uploadFile: (file: ExternalBlob) => Promise<Uint8Array>, _downloadFile: (file: Uint8Array) => Promise<ExternalBlob>, value: {
     Debit: null;
 } | {
     Credit: null;
 }): TransactionType {
     return "Debit" in value ? TransactionType.Debit : "Credit" in value ? TransactionType.Credit : value;
 }
-function from_candid_vec_n11(_uploadFile: (file: ExternalBlob) => Promise<Uint8Array>, _downloadFile: (file: Uint8Array) => Promise<ExternalBlob>, value: Array<_Transaction>): Array<Transaction> {
-    return value.map((x)=>from_candid_Transaction_n12(_uploadFile, _downloadFile, x));
+function from_candid_vec_n5(_uploadFile: (file: ExternalBlob) => Promise<Uint8Array>, _downloadFile: (file: Uint8Array) => Promise<ExternalBlob>, value: Array<_Transaction>): Array<Transaction> {
+    return value.map((x)=>from_candid_Transaction_n6(_uploadFile, _downloadFile, x));
 }
 function to_candid_TransactionType_n1(_uploadFile: (file: ExternalBlob) => Promise<Uint8Array>, _downloadFile: (file: Uint8Array) => Promise<ExternalBlob>, value: TransactionType): _TransactionType {
     return to_candid_variant_n2(_uploadFile, _downloadFile, value);
 }
-function to_candid_UserProfile_n17(_uploadFile: (file: ExternalBlob) => Promise<Uint8Array>, _downloadFile: (file: Uint8Array) => Promise<ExternalBlob>, value: UserProfile): _UserProfile {
-    return to_candid_record_n18(_uploadFile, _downloadFile, value);
-}
 function to_candid_UserRole_n3(_uploadFile: (file: ExternalBlob) => Promise<Uint8Array>, _downloadFile: (file: Uint8Array) => Promise<ExternalBlob>, value: UserRole): _UserRole {
     return to_candid_variant_n4(_uploadFile, _downloadFile, value);
-}
-function to_candid_record_n18(_uploadFile: (file: ExternalBlob) => Promise<Uint8Array>, _downloadFile: (file: Uint8Array) => Promise<ExternalBlob>, value: {
-    name: string;
-    flatOwnerId?: bigint;
-}): {
-    name: string;
-    flatOwnerId: [] | [bigint];
-} {
-    return {
-        name: value.name,
-        flatOwnerId: value.flatOwnerId ? candid_some(value.flatOwnerId) : candid_none()
-    };
 }
 function to_candid_variant_n2(_uploadFile: (file: ExternalBlob) => Promise<Uint8Array>, _downloadFile: (file: Uint8Array) => Promise<ExternalBlob>, value: TransactionType): {
     Debit: null;
