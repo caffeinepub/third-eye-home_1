@@ -84,6 +84,7 @@ export const idlService = IDL.Service({
       [IDL.Opt(FlatOwnerPublic)],
       ['query'],
     ),
+  'resetFinancialData' : IDL.Func([], [], []),
   'saveCallerUserProfile' : IDL.Func([UserProfile], [], []),
   'updateFlatOwner' : IDL.Func(
       [IDL.Nat, IDL.Text, IDL.Text, IDL.Text, IDL.Text, IDL.Nat],
@@ -177,6 +178,7 @@ export const idlFactory = ({ IDL }) => {
         [IDL.Opt(FlatOwnerPublic)],
         ['query'],
       ),
+    'resetFinancialData' : IDL.Func([], [], []),
     'saveCallerUserProfile' : IDL.Func([UserProfile], [], []),
     'updateFlatOwner' : IDL.Func(
         [IDL.Nat, IDL.Text, IDL.Text, IDL.Text, IDL.Text, IDL.Nat],

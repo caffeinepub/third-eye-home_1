@@ -4,9 +4,13 @@ import {
   Building2,
   Download,
   Eye,
+  Plus,
   RefreshCcw,
   Shield,
+  Tag,
+  Trash2,
   Upload,
+  X,
 } from "lucide-react";
 import { useRef, useState } from "react";
 import { toast } from "sonner";
@@ -20,6 +24,62 @@ export default function SettingsPage() {
   const [importProgress, setImportProgress] = useState("");
   const [resetting, setResetting] = useState(false);
   const fileInputRef = useRef<HTMLInputElement>(null);
+
+  // Expense Categories
+  const DEFAULT_EXPENSE_CATEGORIES = [
+    "Monthly Maintenance",
+    "Water Charges",
+    "Electricity",
+    "Repair & Maintenance",
+    "Society Fund",
+    "Other",
+  ];
+  const DEFAULT_PAYMENT_CATEGORIES = [
+    "Maintenance Payment",
+    "Advance Payment",
+    "Penalty Waiver",
+    "Adjustment Credit",
+    "Other",
+  ];
+  const [expenseCategories, setExpenseCategories] = useState<string[]>(() => {
+    try {
+      const stored = localStorage.getItem("expenseCategories");
+      return stored ? JSON.parse(stored) : DEFAULT_EXPENSE_CATEGORIES;
+    } catch {
+      return DEFAULT_EXPENSE_CATEGORIES;
+    }
+  });
+  const [paymentCategories, setPaymentCategories] = useState<string[]>(() => {
+    try {
+      const stored = localStorage.getItem("paymentCategories");
+      return stored ? JSON.parse(stored) : DEFAULT_PAYMENT_CATEGORIES;
+    } catch {
+      return DEFAULT_PAYMENT_CATEGORIES;
+    }
+  });
+  const [newExpenseCategory, setNewExpenseCategory] = useState("");
+  const [newPaymentCategory, setNewPaymentCategory] = useState("");
+
+  const saveExpenseCategories = (cats: string[]) => {
+    setExpenseCategories(cats);
+    localStorage.setItem("expenseCategories", JSON.stringify(cats));
+  };
+  const savePaymentCategories = (cats: string[]) => {
+    setPaymentCategories(cats);
+    localStorage.setItem("paymentCategories", JSON.stringify(cats));
+  };
+  const addExpenseCategory = () => {
+    const trimmed = newExpenseCategory.trim();
+    if (!trimmed || expenseCategories.includes(trimmed)) return;
+    saveExpenseCategories([...expenseCategories, trimmed]);
+    setNewExpenseCategory("");
+  };
+  const addPaymentCategory = () => {
+    const trimmed = newPaymentCategory.trim();
+    if (!trimmed || paymentCategories.includes(trimmed)) return;
+    savePaymentCategories([...paymentCategories, trimmed]);
+    setNewPaymentCategory("");
+  };
 
   const handleExportBackup = async () => {
     if (!actor) return;
@@ -87,19 +147,18 @@ export default function SettingsPage() {
     const file = e.target.files?.[0];
     if (!file || !actor) return;
 
-    const confirmed = window.confirm(
-      "This will restore all residents and transactions from the backup file.\n\nExisting data will NOT be deleted -- the backup data will be added on top.\n\nIf you want a clean restore, please delete all existing residents first from the Residents section, then import.\n\nContinue?",
-    );
-    if (!confirmed) {
-      if (fileInputRef.current) fileInputRef.current.value = "";
-      return;
-    }
-
     setImporting(true);
     setImportProgress("Reading backup file...");
 
     try {
-      const rawText = await file.text();
+      // Use FileReader for better cross-browser / mobile compatibility
+      const rawText = await new Promise<string>((resolve, reject) => {
+        const reader = new FileReader();
+        reader.onload = (ev) => resolve((ev.target?.result as string) ?? "");
+        reader.onerror = () => reject(new Error("Could not read file"));
+        reader.readAsText(file, "utf-8");
+      });
+
       // Strip UTF-8 BOM if present
       const text =
         rawText.charCodeAt(0) === 0xfeff ? rawText.slice(1) : rawText.trim();
@@ -109,6 +168,9 @@ export default function SettingsPage() {
         toast.error(
           "Invalid backup file format. Please use a valid Third Eye Home backup.",
         );
+        setImporting(false);
+        setImportProgress("");
+        if (fileInputRef.current) fileInputRef.current.value = "";
         return;
       }
 
@@ -129,6 +191,17 @@ export default function SettingsPage() {
         description: string;
         amount: string;
       }> = backup.transactions;
+
+      // Show summary and ask for confirmation before proceeding
+      const confirmed = window.confirm(
+        `This backup contains ${owners.length} residents and ${txns.length} transactions.\n\nThis will restore all residents and transactions from the backup file.\n\nExisting data will NOT be deleted -- the backup data will be added on top.\n\nIf you want a clean restore, please delete all existing residents first from the Residents section, then import.\n\nContinue?`,
+      );
+      if (!confirmed) {
+        setImporting(false);
+        setImportProgress("");
+        if (fileInputRef.current) fileInputRef.current.value = "";
+        return;
+      }
 
       // Step 1: Get current owners to avoid duplicate usernames
       setImportProgress("Checking existing residents...");
@@ -220,6 +293,9 @@ export default function SettingsPage() {
           `Note: ${skippedCount} residents were skipped because they already exist. Their transactions were still restored.`,
         );
       }
+
+      // Reload the page so admin immediately sees restored data
+      window.location.reload();
     } catch (err: unknown) {
       console.error("Restore error:", err);
       const msg = err instanceof Error ? err.message : String(err);
@@ -369,6 +445,136 @@ export default function SettingsPage() {
           <RefreshCcw className="w-4 h-4" />
           {resetting ? "Resetting..." : "Reset Financial Data to Zero"}
         </Button>
+      </div>
+
+      {/* Expense Categories */}
+      <div className="bg-card rounded-xl border border-border shadow-card p-6">
+        <div className="flex items-center gap-3 mb-2">
+          <div className="w-10 h-10 rounded-lg bg-[oklch(0.94_0.06_25)] flex items-center justify-center">
+            <Tag className="w-5 h-5 text-[oklch(0.55_0.18_25)]" />
+          </div>
+          <div>
+            <h2 className="font-semibold">Expense Categories</h2>
+            <p className="text-xs text-muted-foreground">
+              Manage categories for expense (debit) entries
+            </p>
+          </div>
+        </div>
+        <p className="text-xs text-muted-foreground mb-4">
+          These categories appear as quick-select options when adding debit
+          transactions.
+        </p>
+        <div className="flex flex-wrap gap-2 mb-4 min-h-[36px]">
+          {expenseCategories.map((cat) => (
+            <span
+              key={cat}
+              className="inline-flex items-center gap-1 px-3 py-1 rounded-full text-xs font-medium bg-[oklch(0.94_0.06_25)] text-[oklch(0.45_0.15_25)] border border-[oklch(0.85_0.08_25)]"
+            >
+              {cat}
+              <button
+                type="button"
+                onClick={() =>
+                  saveExpenseCategories(
+                    expenseCategories.filter((c) => c !== cat),
+                  )
+                }
+                className="ml-0.5 hover:text-destructive transition-colors"
+                aria-label={`Remove ${cat}`}
+              >
+                <X className="w-3 h-3" />
+              </button>
+            </span>
+          ))}
+          {expenseCategories.length === 0 && (
+            <p className="text-xs text-muted-foreground italic">
+              No categories yet. Add one below.
+            </p>
+          )}
+        </div>
+        <div className="flex gap-2">
+          <input
+            type="text"
+            value={newExpenseCategory}
+            onChange={(e) => setNewExpenseCategory(e.target.value)}
+            onKeyDown={(e) => e.key === "Enter" && addExpenseCategory()}
+            placeholder="New category name..."
+            className="flex-1 h-9 rounded-md border border-input bg-background px-3 text-sm focus:outline-none focus:ring-1 focus:ring-ring"
+            data-ocid="settings.expense_category.input"
+          />
+          <Button
+            size="sm"
+            onClick={addExpenseCategory}
+            className="gap-1.5 h-9"
+            data-ocid="settings.expense_category.button"
+          >
+            <Plus className="w-3.5 h-3.5" /> Add
+          </Button>
+        </div>
+      </div>
+
+      {/* Payment Categories */}
+      <div className="bg-card rounded-xl border border-border shadow-card p-6">
+        <div className="flex items-center gap-3 mb-2">
+          <div className="w-10 h-10 rounded-lg bg-[oklch(0.94_0.06_145)] flex items-center justify-center">
+            <Tag className="w-5 h-5 text-[oklch(0.45_0.15_145)]" />
+          </div>
+          <div>
+            <h2 className="font-semibold">Payment Categories</h2>
+            <p className="text-xs text-muted-foreground">
+              Manage categories for payment (credit) entries
+            </p>
+          </div>
+        </div>
+        <p className="text-xs text-muted-foreground mb-4">
+          These categories appear as quick-select options when adding credit
+          transactions.
+        </p>
+        <div className="flex flex-wrap gap-2 mb-4 min-h-[36px]">
+          {paymentCategories.map((cat) => (
+            <span
+              key={cat}
+              className="inline-flex items-center gap-1 px-3 py-1 rounded-full text-xs font-medium bg-[oklch(0.94_0.06_145)] text-[oklch(0.35_0.13_145)] border border-[oklch(0.85_0.08_145)]"
+            >
+              {cat}
+              <button
+                type="button"
+                onClick={() =>
+                  savePaymentCategories(
+                    paymentCategories.filter((c) => c !== cat),
+                  )
+                }
+                className="ml-0.5 hover:text-destructive transition-colors"
+                aria-label={`Remove ${cat}`}
+              >
+                <X className="w-3 h-3" />
+              </button>
+            </span>
+          ))}
+          {paymentCategories.length === 0 && (
+            <p className="text-xs text-muted-foreground italic">
+              No categories yet. Add one below.
+            </p>
+          )}
+        </div>
+        <div className="flex gap-2">
+          <input
+            type="text"
+            value={newPaymentCategory}
+            onChange={(e) => setNewPaymentCategory(e.target.value)}
+            onKeyDown={(e) => e.key === "Enter" && addPaymentCategory()}
+            placeholder="New category name..."
+            className="flex-1 h-9 rounded-md border border-input bg-background px-3 text-sm focus:outline-none focus:ring-1 focus:ring-ring"
+            data-ocid="settings.payment_category.input"
+          />
+          <Button
+            size="sm"
+            onClick={addPaymentCategory}
+            className="gap-1.5 h-9"
+            data-ocid="settings.payment_category.button"
+          >
+            <Plus className="w-3.5 h-3.5" /> Add
+          </Button>
+        </div>
       </div>
 
       {/* Society Details */}

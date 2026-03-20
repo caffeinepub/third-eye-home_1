@@ -1,4 +1,11 @@
-import { ArrowRight, TrendingDown, TrendingUp, Users } from "lucide-react";
+import { Button } from "@/components/ui/button";
+import {
+  AlertTriangle,
+  ArrowRight,
+  TrendingDown,
+  TrendingUp,
+  Users,
+} from "lucide-react";
 import { useEffect, useState } from "react";
 import type { SocietyOverview } from "../../backend.d";
 import { useActor } from "../../hooks/useActor";
@@ -68,8 +75,34 @@ export default function AdminDashboardPage({ onNavigate }: Props) {
     },
   ];
 
+  const showRestoreBanner =
+    !loading && !error && overview !== null && overview.totalFlats === 0n;
+
   return (
     <div className="space-y-6">
+      {/* Restore banner -- shown when no residents found after loading */}
+      {showRestoreBanner && (
+        <div
+          data-ocid="dashboard.restore.panel"
+          className="flex flex-col sm:flex-row items-start sm:items-center gap-3 p-4 rounded-xl border border-amber-300 bg-amber-50 text-amber-900"
+        >
+          <AlertTriangle className="w-5 h-5 text-amber-500 shrink-0 mt-0.5 sm:mt-0" />
+          <p className="flex-1 text-sm font-medium">
+            No residents found. If you have a backup file, go to Settings to
+            restore your data.
+          </p>
+          <Button
+            size="sm"
+            variant="outline"
+            data-ocid="dashboard.restore.button"
+            onClick={() => onNavigate("settings")}
+            className="border-amber-400 text-amber-800 hover:bg-amber-100 shrink-0"
+          >
+            Go to Settings
+          </Button>
+        </div>
+      )}
+
       {/* KPI Cards */}
       <div className="bg-card rounded-xl border border-border shadow-card p-5">
         <h2 className="text-sm font-semibold text-foreground mb-4">

@@ -47,6 +47,31 @@ import { numberToWords } from "../../utils/numberToWords";
 
 type FilterPreset = "all" | "last-month" | "last-365" | "custom";
 
+function loadCategories(key: string, defaults: string[]): string[] {
+  try {
+    const stored = localStorage.getItem(key);
+    return stored ? JSON.parse(stored) : defaults;
+  } catch {
+    return defaults;
+  }
+}
+
+const DEFAULT_EXPENSE_CATEGORIES = [
+  "Monthly Maintenance",
+  "Water Charges",
+  "Electricity",
+  "Repair & Maintenance",
+  "Society Fund",
+  "Other",
+];
+const DEFAULT_PAYMENT_CATEGORIES = [
+  "Maintenance Payment",
+  "Advance Payment",
+  "Penalty Waiver",
+  "Adjustment Credit",
+  "Other",
+];
+
 function getEntryDateMs(entryDate: bigint | string): number {
   if (typeof entryDate === "string") return new Date(entryDate).getTime();
   return Number(entryDate) / 1_000_000;
@@ -86,6 +111,7 @@ export default function AccountsPage() {
   const [statement, setStatement] = useState<Transaction[]>([]);
   const [loadingStmt, setLoadingStmt] = useState(false);
   const [showModal, setShowModal] = useState(false);
+  const [selectedCategory, setSelectedCategory] = useState("");
   const [saving, setSaving] = useState(false);
   const [form, setForm] = useState({
     type: TransactionType.Debit,
@@ -459,7 +485,10 @@ export default function AccountsPage() {
                       </Button>
                       <Button
                         data-ocid="accounts.add.button"
-                        onClick={() => setShowModal(true)}
+                        onClick={() => {
+                          setShowModal(true);
+                          setSelectedCategory("");
+                        }}
                         className="bg-primary text-white h-9 text-sm"
                       >
                         <Plus className="w-4 h-4 mr-1" />
@@ -1319,7 +1348,12 @@ export default function AccountsPage() {
         {/* Add Manual Entry Modal */}
         <Dialog
           open={showModal}
-          onOpenChange={(o) => !o && setShowModal(false)}
+          onOpenChange={(o) => {
+            if (!o) {
+              setShowModal(false);
+              setSelectedCategory("");
+            }
+          }}
         >
           <DialogContent
             data-ocid="accounts.add.dialog"
@@ -1351,6 +1385,44 @@ export default function AccountsPage() {
                   </SelectContent>
                 </Select>
               </div>
+              {(() => {
+                const cats =
+                  form.type === TransactionType.Debit
+                    ? loadCategories(
+                        "expenseCategories",
+                        DEFAULT_EXPENSE_CATEGORIES,
+                      )
+                    : loadCategories(
+                        "paymentCategories",
+                        DEFAULT_PAYMENT_CATEGORIES,
+                      );
+                return cats.length > 0 ? (
+                  <div>
+                    <Label className="text-xs">Category (optional)</Label>
+                    <Select
+                      value={selectedCategory}
+                      onValueChange={(v) => {
+                        setSelectedCategory(v);
+                        if (v) setForm((p) => ({ ...p, description: v }));
+                      }}
+                    >
+                      <SelectTrigger
+                        data-ocid="accounts.category.select"
+                        className="mt-1 h-9 text-sm"
+                      >
+                        <SelectValue placeholder="-- Select a category --" />
+                      </SelectTrigger>
+                      <SelectContent>
+                        {cats.map((cat) => (
+                          <SelectItem key={cat} value={cat}>
+                            {cat}
+                          </SelectItem>
+                        ))}
+                      </SelectContent>
+                    </Select>
+                  </div>
+                ) : null;
+              })()}
               <div>
                 <Label className="text-xs">Description</Label>
                 <Input

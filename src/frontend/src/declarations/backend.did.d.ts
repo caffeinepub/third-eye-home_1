@@ -68,6 +68,7 @@ export interface _SERVICE {
   'isCallerAdmin' : ActorMethod<[], boolean>,
   'linkOwnerToPrincipal' : ActorMethod<[bigint, Principal], undefined>,
   'loginOwner' : ActorMethod<[string, string], [] | [FlatOwnerPublic]>,
+  'resetFinancialData' : ActorMethod<[], undefined>,
   'saveCallerUserProfile' : ActorMethod<[UserProfile], undefined>,
   'updateFlatOwner' : ActorMethod<
     [bigint, string, string, string, string, bigint],
