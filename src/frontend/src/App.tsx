@@ -4,6 +4,7 @@ import type { FlatOwnerPublic } from "./backend.d";
 import LoginPage from "./pages/LoginPage";
 import AdminLayout from "./pages/admin/AdminLayout";
 import OwnerLayout from "./pages/owner/OwnerLayout";
+import { clearAdminIdentity } from "./utils/adminIdentity";
 
 type AppView = "login" | "admin" | "owner";
 
@@ -21,6 +22,7 @@ export default function App() {
   };
 
   const handleLogout = () => {
+    clearAdminIdentity();
     setOwnerProfile(null);
     setView("login");
   };

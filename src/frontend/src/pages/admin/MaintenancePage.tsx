@@ -23,7 +23,7 @@ import type {
   Transaction,
 } from "../../backend.d";
 import { TransactionType } from "../../backend.d";
-import { useActor } from "../../hooks/useActor";
+import { useAdminActor } from "../../contexts/AdminActorContext";
 import { formatDate, formatINR, getCurrentMonthYear } from "../../utils/format";
 
 const MONTH_NAMES = [
@@ -66,7 +66,7 @@ function generateMonthOptions() {
 const MONTH_OPTIONS = generateMonthOptions();
 
 export default function MaintenancePage() {
-  const { actor, isFetching } = useActor();
+  const { actor, isFetching } = useAdminActor();
   const [monthYear, setMonthYear] = useState(getCurrentMonthYear());
   const [running, setRunning] = useState(false);
   const [owners, setOwners] = useState<FlatOwner[]>([]);

@@ -153,6 +153,7 @@ export interface backendInterface {
     getOwnerStatement(ownerId: bigint): Promise<Array<Transaction>>;
     getSocietyOverview(): Promise<SocietyOverview>;
     isCallerAdmin(): Promise<boolean>;
+    loginAdmin(password: string): Promise<boolean>;
     loginOwner(username: string, password: string): Promise<FlatOwnerPublic | null>;
     resetFinancialData(): Promise<void>;
     updateFlatOwner(id: bigint, blockNo: string, flatNo: string, ownerName: string, phone: string, maintenanceAmount: bigint): Promise<void>;
@@ -412,6 +413,20 @@ export class Backend implements backendInterface {
         } else {
             const result = await this.actor.loginOwner(arg0, arg1);
             return from_candid_opt_n12(this._uploadFile, this._downloadFile, result);
+        }
+    }
+    async loginAdmin(arg0: string): Promise<boolean> {
+        if (this.processError) {
+            try {
+                const result = await (this.actor as any).loginAdmin(arg0);
+                return result as boolean;
+            } catch (e) {
+                this.processError(e);
+                throw new Error("unreachable");
+            }
+        } else {
+            const result = await (this.actor as any).loginAdmin(arg0);
+            return result as boolean;
         }
     }
     async resetFinancialData(): Promise<void> {

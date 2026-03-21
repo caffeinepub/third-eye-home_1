@@ -8,7 +8,7 @@ import {
 } from "lucide-react";
 import { useEffect, useState } from "react";
 import type { SocietyOverview } from "../../backend.d";
-import { useActor } from "../../hooks/useActor";
+import { useAdminActor } from "../../contexts/AdminActorContext";
 import { formatINR } from "../../utils/format";
 import type { AdminPage } from "./AdminLayout";
 
@@ -17,7 +17,7 @@ interface Props {
 }
 
 export default function AdminDashboardPage({ onNavigate }: Props) {
-  const { actor, isFetching } = useActor();
+  const { actor, isFetching } = useAdminActor();
   const [overview, setOverview] = useState<SocietyOverview | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState("");

@@ -5,6 +5,7 @@ import {
   LayoutDashboard,
   LogOut,
   Menu,
+  Receipt,
   User,
   X,
 } from "lucide-react";
@@ -12,9 +13,10 @@ import { useState } from "react";
 import type { FlatOwnerPublic } from "../../backend.d";
 import OwnerDashboardPage from "./OwnerDashboardPage";
 import OwnerProfilePage from "./OwnerProfilePage";
+import OwnerReceiptsPage from "./OwnerReceiptsPage";
 import OwnerStatementPage from "./OwnerStatementPage";
 
-export type OwnerPage = "dashboard" | "statement" | "profile";
+export type OwnerPage = "dashboard" | "statement" | "profile" | "receipts";
 
 const NAV_ITEMS: { id: OwnerPage; label: string; icon: React.ReactNode }[] = [
   {
@@ -27,6 +29,11 @@ const NAV_ITEMS: { id: OwnerPage; label: string; icon: React.ReactNode }[] = [
     label: "My Statement",
     icon: <FileText className="w-4 h-4" />,
   },
+  {
+    id: "receipts",
+    label: "Your Receipts",
+    icon: <Receipt className="w-4 h-4" />,
+  },
   { id: "profile", label: "My Profile", icon: <User className="w-4 h-4" /> },
 ];
 
@@ -34,6 +41,7 @@ const PAGE_TITLES: Record<OwnerPage, string> = {
   dashboard: "Owner Dashboard",
   statement: "My Statement",
   profile: "My Profile",
+  receipts: "Your Receipts",
 };
 
 interface Props {
@@ -261,6 +269,9 @@ export default function OwnerLayout({ initialProfile, onLogout }: Props) {
               blockNo={initialProfile?.blockNo}
               phone={initialProfile?.phone}
             />
+          )}
+          {currentPage === "receipts" && initialProfile && (
+            <OwnerReceiptsPage ownerProfile={initialProfile} />
           )}
           {currentPage === "profile" && (
             <OwnerProfilePage profile={initialProfile} />

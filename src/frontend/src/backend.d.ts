@@ -71,6 +71,7 @@ export interface backendInterface {
     getSocietyOverview(): Promise<SocietyOverview>;
     isCallerAdmin(): Promise<boolean>;
     loginOwner(username: string, password: string): Promise<FlatOwnerPublic | null>;
+    loginAdmin(password: string): Promise<boolean>;
     resetFinancialData(): Promise<void>;
     updateFlatOwner(id: bigint, blockNo: string, flatNo: string, ownerName: string, phone: string, maintenanceAmount: bigint): Promise<void>;
     updateMaintenanceDebit(monthYear: string): Promise<void>;

@@ -21,7 +21,7 @@ import { Link, Loader2, Pencil, Plus, Trash2 } from "lucide-react";
 import { useCallback, useEffect, useState } from "react";
 import { toast } from "sonner";
 import type { FlatOwnerPublic as FlatOwner } from "../../backend.d";
-import { useActor } from "../../hooks/useActor";
+import { useAdminActor } from "../../contexts/AdminActorContext";
 import { formatINR } from "../../utils/format";
 
 type ModalType = "add" | "edit" | "delete" | "link" | null;
@@ -39,7 +39,7 @@ const EMPTY_FORM = {
 type FormState = typeof EMPTY_FORM;
 
 function SocietyOverviewMini() {
-  const { actor, isFetching } = useActor();
+  const { actor, isFetching } = useAdminActor();
   const [data, setData] = useState<{
     totalFlats: bigint;
     totalPendingDues: bigint;
@@ -149,7 +149,7 @@ function OwnerFormFields({
 }
 
 export default function ResidentsPage() {
-  const { actor, isFetching } = useActor();
+  const { actor, isFetching } = useAdminActor();
   const [owners, setOwners] = useState<FlatOwner[]>([]);
   const [loading, setLoading] = useState(true);
   const [modal, setModal] = useState<ModalType>(null);

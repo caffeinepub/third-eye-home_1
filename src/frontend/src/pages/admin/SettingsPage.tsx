@@ -17,13 +17,13 @@ import {
 import { useRef, useState } from "react";
 import { toast } from "sonner";
 import { TransactionType } from "../../backend";
-import { useActor } from "../../hooks/useActor";
+import { useAdminActor } from "../../contexts/AdminActorContext";
 
 function ConnectionStatus({
   actor,
   isFetching,
 }: {
-  actor: unknown;
+  actor: unknown | null;
   isFetching: boolean;
 }) {
   if (isFetching || !actor) {
@@ -43,7 +43,7 @@ function ConnectionStatus({
 }
 
 export default function SettingsPage() {
-  const { actor, isFetching } = useActor();
+  const { actor, isFetching } = useAdminActor();
   const [exporting, setExporting] = useState(false);
   const [importing, setImporting] = useState(false);
   const [importProgress, setImportProgress] = useState("");
@@ -350,9 +350,14 @@ export default function SettingsPage() {
       window.location.reload();
     } catch (err: unknown) {
       console.error("Restore error:", err);
-      toast.error(
-        `Restore failed: ${err instanceof Error ? err.message : String(err)}`,
-      );
+      const errMsg = err instanceof Error ? err.message : String(err);
+      if (errMsg.includes("Unauthorized") || errMsg.includes("Only users")) {
+        toast.error(
+          "Session expired or not authenticated as admin. Please refresh the page and try again.",
+        );
+      } else {
+        toast.error(`Restore failed: ${errMsg}`);
+      }
     } finally {
       setImporting(false);
       setImportProgress("");

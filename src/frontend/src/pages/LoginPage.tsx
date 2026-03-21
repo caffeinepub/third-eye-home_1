@@ -5,8 +5,8 @@ import { Label } from "@/components/ui/label";
 import { Eye, EyeOff, Home, Loader2, Shield } from "lucide-react";
 import { useState } from "react";
 import type { FlatOwnerPublic } from "../backend.d";
+import { createActorWithConfig } from "../config";
 import { useActor } from "../hooks/useActor";
-
 type Portal = "portal" | "admin" | "owner";
 
 interface LoginPageProps {
@@ -336,18 +336,27 @@ function AdminLoginForm({
   const [error, setError] = useState("");
   const [loading, setLoading] = useState(false);
 
-  const handleSubmit = (e: React.FormEvent) => {
+  const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     setError("");
     setLoading(true);
-    setTimeout(() => {
-      if (username === "admin3rdeye.com" && password === "Admin@1234") {
-        onSuccess();
+    try {
+      if (username === "admin@thirdeye.in" && password === "ThirdEye@2026") {
+        const adminActor = await createActorWithConfig();
+        const ok = await adminActor.loginAdmin("ThirdEye@2026");
+        if (ok) {
+          onSuccess();
+        } else {
+          setError("Admin authentication failed. Please try again.");
+        }
       } else {
         setError("Invalid admin credentials");
       }
+    } catch (_err) {
+      setError("Connection error. Please refresh and try again.");
+    } finally {
       setLoading(false);
-    }, 500);
+    }
   };
 
   return (

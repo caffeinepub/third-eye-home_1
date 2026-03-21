@@ -6,13 +6,13 @@ import Order "mo:core/Order";
 import Nat "mo:core/Nat";
 import Runtime "mo:core/Runtime";
 import Principal "mo:core/Principal";
-import Migration "migration";
+
 
 import MixinAuthorization "authorization/MixinAuthorization";
 import AccessControl "authorization/access-control";
 
 // Apply data migration logic from migration.mo when upgrading
-(with migration = Migration.run)
+
 actor {
   // ── Kept for stable-variable compatibility with previous version ──
   let accessControlState = AccessControl.initState();
@@ -204,7 +204,7 @@ actor {
 
   // Get all expense vouchers (sorted by most recent entry date first)
   public query ({ caller }) func getAllExpenseVouchers() : async [ExpenseVoucher] {
-    if (not AccessControl.hasPermission(accessControlState, caller, #user)) {
+    if (not AccessControl.hasPermission(accessControlState, caller, #admin)) {
       Runtime.trap("Unauthorized: Only users can view expense vouchers");
     };
     expenseVouchers.values().toArray().sort(
@@ -310,7 +310,7 @@ actor {
   };
 
   public query ({ caller }) func getAllFlatOwners() : async [FlatOwnerPublic] {
-    if (not AccessControl.hasPermission(accessControlState, caller, #user)) {
+    if (not AccessControl.hasPermission(accessControlState, caller, #admin)) {
       Runtime.trap("Unauthorized: Only users can view flat owners");
     };
     flatOwners.values().toArray().map(func(owner) { toPublicFlatOwner(owner) });
@@ -401,18 +401,8 @@ actor {
     syncStable();
   };
 
-  public query ({ caller }) func getFlatStatement(flatOwnerId : Nat) : async [Transaction] {
-    // Allow if admin OR if caller owns this flat
-    let callerFlatId = getFlatOwnerIdForCaller(caller);
-    let isOwner = switch (callerFlatId) {
-      case (?id) { id == flatOwnerId };
-      case (null) { false };
-    };
-    
-    if (not (AccessControl.isAdmin(accessControlState, caller) or isOwner)) {
-      Runtime.trap("Unauthorized: Can only view your own statement");
-    };
-    
+  public query func getFlatStatement(flatOwnerId : Nat) : async [Transaction] {
+    // Public: caller identified by flatOwnerId (password login does not use II)
     transactions.values().toArray().filter(
       func(t) { t.flatOwnerId == flatOwnerId }
     ).sort(Transaction.compareByEntryDateDesc);
@@ -420,14 +410,14 @@ actor {
 
   // Returns ALL transactions across all owners (for society statement)
   public query ({ caller }) func getAllTransactions() : async [Transaction] {
-    if (not AccessControl.hasPermission(accessControlState, caller, #user)) {
+    if (not AccessControl.hasPermission(accessControlState, caller, #admin)) {
       Runtime.trap("Unauthorized: Only users can view all transactions");
     };
     transactions.values().toArray().sort(Transaction.compareByEntryDateAsc);
   };
 
   public query ({ caller }) func getSocietyOverview() : async SocietyOverview {
-    if (not AccessControl.hasPermission(accessControlState, caller, #user)) {
+    if (not AccessControl.hasPermission(accessControlState, caller, #admin)) {
       Runtime.trap("Unauthorized: Only users can view society overview");
     };
     var totalDebits : Nat = 0;
@@ -467,35 +457,24 @@ actor {
     };
   };
 
-  public query ({ caller }) func getOwnerStatement(ownerId : Nat) : async [Transaction] {
-    // Allow if admin OR if caller owns this flat
-    let callerFlatId = getFlatOwnerIdForCaller(caller);
-    let isOwner = switch (callerFlatId) {
-      case (?id) { id == ownerId };
-      case (null) { false };
-    };
-    
-    if (not (AccessControl.isAdmin(accessControlState, caller) or isOwner)) {
-      Runtime.trap("Unauthorized: Can only view your own statement");
-    };
-    
+  // Admin login with ephemeral principal (password verified, grants #admin to caller)
+  public shared ({ caller }) func loginAdmin(password : Text) : async Bool {
+
+    if (password != "ThirdEye@2026") { return false };
+    accessControlState.userRoles.add(caller, #admin);
+    accessControlState.adminAssigned := true;
+    true
+  };
+
+  public query func getOwnerStatement(ownerId : Nat) : async [Transaction] {
+    // Public: owner is identified by ownerId parameter (password login does not use II)
     transactions.values().toArray().filter(
       func(t) { t.flatOwnerId == ownerId }
     ).sort(Transaction.compareByEntryDateDesc);
   };
 
-  public query ({ caller }) func getOwnerBalance(ownerId : Nat) : async Nat {
-    // Allow if admin OR if caller owns this flat
-    let callerFlatId = getFlatOwnerIdForCaller(caller);
-    let isOwner = switch (callerFlatId) {
-      case (?id) { id == ownerId };
-      case (null) { false };
-    };
-    
-    if (not (AccessControl.isAdmin(accessControlState, caller) or isOwner)) {
-      Runtime.trap("Unauthorized: Can only view your own balance");
-    };
-    
+  public query func getOwnerBalance(ownerId : Nat) : async Nat {
+    // Public: owner is identified by ownerId parameter (password login does not use II)
     var debits : Nat = 0;
     var credits : Nat = 0;
     transactions.values().forEach(
