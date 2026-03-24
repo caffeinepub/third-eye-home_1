@@ -336,21 +336,31 @@ function AdminLoginForm({
   const [error, setError] = useState("");
   const [loading, setLoading] = useState(false);
 
+  const ADMIN_CREDENTIALS: { username: string; password: string }[] = [
+    { username: "admin3rdeye.com", password: "Admin@1234" },
+    { username: "admin@thirdeye.in", password: "ThirdEye@2026" },
+  ];
+
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     setError("");
     setLoading(true);
     try {
-      if (username === "admin@thirdeye.in" && password === "ThirdEye@2026") {
+      const match = ADMIN_CREDENTIALS.find(
+        (c) => c.username === username.trim() && c.password === password,
+      );
+      if (match) {
         const adminActor = await createActorWithConfig();
-        const ok = await adminActor.loginAdmin("ThirdEye@2026");
+        const ok = await adminActor.loginAdmin(match.password);
         if (ok) {
           onSuccess();
         } else {
           setError("Admin authentication failed. Please try again.");
         }
       } else {
-        setError("Invalid admin credentials");
+        setError(
+          "Invalid admin credentials. Please check your username and password.",
+        );
       }
     } catch (_err) {
       setError("Connection error. Please refresh and try again.");
