@@ -28,7 +28,7 @@ export function AdminActorProvider({
         // Re-establish admin role on every mount (handles canister restarts
         // that wipe in-memory role state)
         try {
-          await a.loginAdmin("Admin@1234");
+          await a.loginAdmin("Admin@3i");
         } catch {
           // If loginAdmin fails (e.g. canister still starting), proceed anyway
           // — the login form already verified credentials

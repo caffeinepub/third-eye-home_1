@@ -337,8 +337,7 @@ function AdminLoginForm({
   const [loading, setLoading] = useState(false);
 
   const ADMIN_CREDENTIALS: { username: string; password: string }[] = [
-    { username: "admin3rdeye.com", password: "Admin@1234" },
-    { username: "admin@thirdeye.in", password: "ThirdEye@2026" },
+    { username: "admin@3i.com", password: "Admin@3i" },
   ];
 
   const handleSubmit = async (e: React.FormEvent) => {

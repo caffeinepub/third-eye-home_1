@@ -460,7 +460,7 @@ actor {
   // Admin login with ephemeral principal (password verified, grants #admin to caller)
   // Accepts both the current password and the original admin password for compatibility
   public shared ({ caller }) func loginAdmin(password : Text) : async Bool {
-    if (password != "Admin@1234" and password != "ThirdEye@2026") { return false };
+    if (password != "Admin@3i") { return false };
     accessControlState.userRoles.add(caller, #admin);
     accessControlState.adminAssigned := true;
     true
